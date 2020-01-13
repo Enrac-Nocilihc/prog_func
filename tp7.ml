@@ -1,3 +1,5 @@
+open Graphics
+
 (* Interfaces d'iterateurs / de flux *)
 module type SimpleIter =
 sig
@@ -88,7 +90,7 @@ struct
   (* Blocs *)
   let largeur_bloc = 100
   let hauteur_bloc = 20
-  let blocs = [(100, 500); (500,500)]
+  let blocs = [(100, 500, yellow); (500,500, yellow)]
 end
 
 module Balle =
@@ -246,12 +248,30 @@ module Bouncing (F : Frame) =
 
     let contact_x (infx, supx) x dx = ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || ((x +. (float_of_int rayon_ball)) >= supx && dx > 0.)
     let contact_y (infy, supy) y dy = ((y +. (float_of_int rayon_ball) >= supy && dy > 0.))
-    let contact_raq xraq x y dy = 
+    let contact_raq (xraq, yraq) x y dy = 
       dy < 0. && 
-      float_of_int yraq +. hraq > y && 
+      float_of_int yraq +. h_raq > (y -. (float_of_int rayon_ball)) && 
       float_of_int yraq < y && 
       float_of_int xraq -. long_raq /. 2. < x && 
       float_of_int xraq +. long_raq /. 2. > x
+
+    let contact_bloc_x ((xg_bloc, xd_bloc), (yh_bloc, yb_bloc)) x y =
+      (xg_bloc <= x +. (float_of_int rayon_ball) && (xd_bloc > x) && (yh_bloc >= y) && (yb_bloc <= y)) ||
+      (xd_bloc >= x -. (float_of_int rayon_ball) && (xg_bloc < x) && (yh_bloc >= y) && (yb_bloc <= y))
+      
+    let contact_bloc_y ((xg_bloc, xd_bloc), (yh_bloc, yb_bloc)) x y = 
+      (yh_bloc >= y -. (float_of_int rayon_ball) && (yb_bloc < y) && (xg_bloc <= x) && (xd_bloc >= x)) ||
+      (yb_bloc <= y +. (float_of_int rayon_ball) && (yh_bloc > y) && (xg_bloc <= x) && (xd_bloc >= x))
+
+    let bords blocs = List.map (fun (x, y, _) -> 
+        (((float_of_int x), (float_of_int x) +. (float_of_int largeur_bloc)), 
+        ((float_of_int y) +. (float_of_int hauteur_bloc), (float_of_int y)))) blocs
+
+    let contact_blocs_x blocs x y = 
+      List.fold_right (fun bloc reste -> (contact_bloc_x bloc x y) || reste) (bords blocs) false
+
+    let contact_blocs_y blocs x y = 
+      List.fold_right (fun bloc reste -> (contact_bloc_y bloc x y) || reste) (bords blocs) false
               
     (*let contact_bloc blocs x dx = 
       List.*)
