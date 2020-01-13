@@ -81,7 +81,7 @@ struct
   let long_raq = 100.
   let h_raq = 20.
   let rayon_ball = 5
-  let pos_y_raq = 100
+  let pos_y_raq = 50
   let largeur_bloc = 100
   let hauteur_bloc = 20
   let i = 0
@@ -184,28 +184,29 @@ module Bouncing (F : Frame) =
                 | Some (t, q) -> if cond t then Flux.uncons (f_cond t) else Some (t, unless q cond f_cond)
         ))
 
-    let contact_1d (infx, supx) x dx = (x <= infx && dx < 0.) || (x >= supx && dx > 0.)
+    let contact_x (infx, supx) x dx = ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || ((x +. (float_of_int rayon_ball)) >= supx && dx > 0.)
+    let contact_y (infy, supy) y dy = ((y +. (float_of_int rayon_ball) >= supy && dy > 0.))
     let contact_raq (xraq, yraq) x y dy = 
       dy < 0. && 
-      float_of_int yraq +. h_raq > y && 
+      float_of_int yraq +. h_raq > (y -. (float_of_int rayon_ball)) && 
       float_of_int yraq < y && 
-      float_of_int xraq < x && 
-      float_of_int xraq +. long_raq > x
+      float_of_int xraq -. long_raq /. 2. < x && 
+      float_of_int xraq +. long_raq /. 2. > x
 
-    (*let contact_bloc blocs x dx = 
-      List.*)
+    let contact_bloc blocs x dx = 
+      List.
 
     let rebond ((x, y), (dx, dy)) =
       let mouse_x = fst (Graphics.mouse_pos ()) in
         (x, y),
         (
-          (if contact_1d F.box_x x dx then -. dx else dx),
-          (if (contact_1d F.box_y y dy) || (contact_raq (mouse_x, pos_y_raq) x y dy) then -. dy else dy)
+          (if contact_x F.box_x x dx then -. dx else dx),
+          (if (contact_y F.box_y y dy) || (contact_raq (mouse_x, pos_y_raq) x y dy) then -. dy else dy)
         )
 
     let contact ((x, y), (dx, dy)) = 
       let mouse_x = fst (Graphics.mouse_pos ()) in 
-      contact_1d F.box_x x dx || contact_1d F.box_y y dy || contact_raq (mouse_x, pos_y_raq) x y dy
+      contact_x F.box_x x dx || contact_y F.box_y y dy || contact_raq (mouse_x, pos_y_raq) x y dy
     module FF = FreeFall (F)
 
     let rec run etat0 =
@@ -224,9 +225,8 @@ module Bounce = Bouncing (Init)
 
 let _  =
   let position0 = (300., 400.) in
-  let vitesse0 = (150., -80.) in
+  let vitesse0 = (500., -200.) in
   Draw.draw (Bounce.run (position0, vitesse0));;
-
 
 
 
