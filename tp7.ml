@@ -131,12 +131,12 @@ struct
 
   include Parametres
 
-  let long_raq = 100.
+  (* let long_raq = 100. *)
   let hraq = 20.
   let yraq = 50
   let color_raq = red
 
-  let get_xraq = 
+  let get_xraq long_raq = 
     (fun xsouris ->
       if xsouris > int_of_float (long_ecran -. long_raq/.2.) then int_of_float (long_ecran -. long_raq/.2.)
       else if xsouris < int_of_float (long_raq/.2.) then int_of_float (long_raq/.2.)
@@ -152,7 +152,12 @@ struct
   let rayon_bonus = 10
   let bonusTaille = (green, 1)
   let malusTaille = (red, 2) 
-  let listeBonus = [bonusTaille; malusTaille]
+  let bonusBalle = (black, 3) 
+
+  let listeBonus = [bonusTaille; bonusBalle; malusTaille]
+  let vitBon = -100.
+  let plusLong = 50.
+  let moinsLong = 25.
 
 
   let coord_relB x sens = x +. float_of_int(rayon_bonus * sens)
@@ -196,7 +201,7 @@ module Init =
     
     let statut = (0, 3) (* Score / Vies *) 
     let bonusInit = [] (* Bonus de la forme (x,y,dy,type) *)
-    let paramVariables = (100, false) (* Longueur raquette / Inversion des contrôles  *)
+    let paramVariables = (100., false) (* Longueur raquette / Inversion des contrôles  *)
     let ballesInit = [(position0, vitesse0)] 
     (* TODO : Elargissement raquette *)
     (* TODO : Rétrécissement raquette *)
@@ -229,7 +234,7 @@ module Drawing (F : Frame) =
               Sys.(set_signal sigalrm !ref_handler_alrm);
               Sys.(set_signal sigint  !ref_handler_int)
             end
-        | Some ((balles, blocs, (score, vies), _, bonusTombants), r') ->
+        | Some ((balles, blocs, (score, vies), (long_raq, _), bonusTombants), r') ->
             begin
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
@@ -239,14 +244,18 @@ module Drawing (F : Frame) =
             
             let draw_raquette =
               set_color color_raq;
-              let x = get_xraq (fst (mouse_pos ())) in
+              let x = get_xraq long_raq (fst (mouse_pos ())) in
                 fill_rect (int_of_float (float_of_int x -. (long_raq)/.2.)) yraq (int_of_float long_raq) (int_of_float hraq);
             in
 
             let draw_balle ((x,y),_) =
-              Format.printf "y=%f@."y ;
               set_color color_ball;
               draw_circle (int_of_float x) (int_of_float y) rayon_ball;
+            in
+
+            let draw_bonus (x,y,_,(couleur,typeBonus)) =
+              set_color couleur;
+              draw_circle (int_of_float x) (int_of_float y) rayon_bonus;
             in
 
             let draw_bloc (x, y, power) =
@@ -279,6 +288,8 @@ module Drawing (F : Frame) =
             List.iter draw_balle balles;
             draw_raquette;
             draw_score;
+            draw_vies;
+            List.iter draw_bonus bonusTombants;
             List.iter draw_bloc blocs;
             Graphics.synchronize ();
             (*ignore (read_line ());*)
@@ -409,7 +420,7 @@ module Bouncing (F : Frame) =
       ((y -. (float_of_int rayon_ball)) <= infy && dy < 0.) ||
       contact_blocs_y blocs x y dy
 
-    let contact_raq xraq x y dy = 
+    let contact_raq xraq x y dy long_raq= 
       dy < 0. && 
       float_of_int yraq +. hraq > yb y && 
       float_of_int yraq < yb y && 
@@ -423,73 +434,95 @@ module Bouncing (F : Frame) =
     (*let contact_bloc blocs x dx = 
       List.*)
 
-    let rebond_balle ((x, y), (dx, dy), blocs, (score,vies), (long_raquette, inv_controles)) =
+    let rebond_balle ((x, y), (dx, dy), blocs, (score,vies), (long_raq, inv_controles), bonusTombants) =
       
       let pivote (vx, vy) theta =
         (vx *. cos theta +. vy *. sin theta,
         -.vx *. sin theta +. vy *. cos theta)
       in
 
-      let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
         
       let new_dx = (if contact_x F.box_x blocs x y dx then -. dx *. acceleration else dx) in
-      let new_dy = (if (contact_y F.box_y blocs x y dy) || (contact_raq xraq x (yb y) dy) then -. dy *. acceleration else dy) in
+      let new_dy = (if (contact_y F.box_y blocs x y dy) || (contact_raq xraq x (yb y) dy long_raq) then -. dy *. acceleration else dy) in
         let dist_centre = x -. (float_of_int xraq) in
         let ratio_centre = (dist_centre /. (long_raq /. 2.)) in
-        let thetaAjoute = (if (contact_raq xraq x (yb y) dy) then ratio_centre *. 3.1415 /. 4. else 0.) in
+        let thetaAjoute = (if (contact_raq xraq x (yb y) dy long_raq) then ratio_centre *. 3.1415 /. 4. else 0.) in
         let newScore = score + (if contact_blocs blocs x y dx dy then 20 * vies else 0) in
-        let new_blocs = List.fold_right 
-          (fun t q ->
+        let (new_blocs, new_bonus) = List.fold_right (fun t q ->
             if (contact_bloc (bords_solo t) x y dx dy) then 
-              let (px, py, pui) = t in 
-                if(pui = 1) then q
-                else (px, py, pui - 1)::q
-            else t::q 
-          ) blocs [] in
-          ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raquette, inv_controles) ) (* TODO : Longueur et inversion *)
+              (let (px, py, pui) = t in 
+                if(pui = 1) then 
+                  let rand = 1 in
+                    if rand = 1 then let typeBon = (List.hd listeBonus) in 
+                      (fst q, (x, y, vitBon, typeBon)::(snd q))
+                    else q
+                else ((px, py, pui - 1)::(fst q), (snd q)))
+            else (t::(fst q), snd q) ) blocs ([], bonusTombants)
+        in
+          ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raq, inv_controles), new_bonus ) (* TODO : Longueur et inversion *)
 
 
-    let rebond (balles, blocs, (score,vies), (long_raquette, inv_controles), bonusTombants) =
+    let contact_un_bonus xraq (x, y, _, _) long_raq =
+      float_of_int yraq +. hraq > ybB y && 
+      float_of_int yraq < yhB y && 
+      float_of_int xraq -. long_raq /. 2. < x && 
+      float_of_int xraq +. long_raq /. 2. > x
 
-      let rec rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) = 
-        let addBalle (ba, bl, s, v) b =
-          (b::ba, bl, s, v)
+    let appliquer_bonus_touches (b, bl, s, v, bon) xraq=
+
+      let appliquer_bonus (b, bl, s, (long_raq, inv_contr)) xraq bonus =
+        let ((xb,yb),(dx,dy)) = List.hd b in 
+        let (x,y,_,(_, typeBon)) = bonus in
+          if contact_un_bonus xraq bonus long_raq then
+            match typeBon with
+            | 1 -> (b, bl, s, (long_raq +. Bonus.plusLong, inv_contr))
+            | 2 -> (b, bl, s, (long_raq -. Bonus.moinsLong, inv_contr))
+            | 3 -> (((xb,yb),(-.dx,dy))::b, bl, s, (long_raq, inv_contr))
+            | _ -> (b, bl, s, (long_raq, inv_contr))
+          else (b, bl, s, (long_raq, inv_contr))
+      in
+      List.fold_right (fun t (b, bl, s, v, bon) -> 
+        if contact_un_bonus xraq t (fst v) then
+          let (bn, bln, sn, vn) = appliquer_bonus (b, bl, s, v) xraq t in (bn, bln, sn, vn, bon)
+        else (b, bl, s, v, t::bon)) bon (b, bl, s, v, [])
+
+
+    let rebond (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) =
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
+      let rec rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonus) = 
+        let addBalle (ba, bl, s, v, bon) b =
+          (b::ba, bl, s, v, bon)
         in
           match balles with
-          | [] -> ([], blocs, (score, vies), Init.paramVariables) (* TODO : Terminaison du jeu *)
+          | [] -> ([], blocs, (score, vies), (long_raq, inv_controles), bonus)
           | (pos, vit)::q -> 
-            if (yb(*Modifier en xh*) (snd pos)) < 0. then rebondRec (q, blocs, (score,vies), (long_raquette, inv_controles))
+            if (yb (snd pos)) < 0. then rebondRec (q, blocs, (score,vies), Init.paramVariables, Init.bonusInit)
             else
-              let (pos2, vit2, newBlocs, newScore, (new_long_raquette, new_inv_controles) ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raquette, inv_controles)) in
-                addBalle (rebondRec (q, newBlocs, (newScore,vies), (new_long_raquette, new_inv_controles))) (pos2, vit2)
+              let (pos2, vit2, newBlocs, newScore, (new_long_raq, new_inv_controles), new_bonus ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raq, inv_controles), bonusTombants) in
+                addBalle (rebondRec (q, newBlocs, (newScore,vies), (new_long_raq, new_inv_controles), new_bonus)) (pos2, vit2)
       in
-        let (b, bl, s, v) = rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) in
+        let (b, bl, s, v, bon) = rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) in
         match b with
-        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, bonusTombants)
-        | _ -> (b, bl, s, v, bonusTombants)
+        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
+        | _ -> appliquer_bonus_touches (b, bl, s, v, bon) xraq
 
 
-    let contact_raq_bonus xraq bonusTombants =
-
-      let contact_bonus xraq (x, y, _, _) =
-        float_of_int yraq +. hraq > ybB y && 
-        float_of_int yraq < yhB y && 
-        float_of_int xraq -. long_raq /. 2. < x && 
-        float_of_int xraq +. long_raq /. 2. > x
-      in
-      List.fold_right (fun t q -> (contact_bonus xraq t || q)) bonusTombants false 
+    let contact_raq_bonus xraq bonusTombants long_raq =
+      List.fold_right (fun t q -> (contact_un_bonus xraq t long_raq || q)) bonusTombants false 
       
 
     let rec contact (balles, blocs, statut, paramVariables, bonusTombants) = 
-      let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
+      let (long_raq, _) = paramVariables in 
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
       match balles with
       | [] -> false
       | ((x,y), (dx,dy))::q -> 
         (contact_x F.box_x blocs x y dx) || 
         (contact_y F.box_y blocs x y dy) || 
-        (contact_raq xraq x y dy) || 
+        (contact_raq xraq x y dy long_raq) || 
         (contact (q, blocs, statut, paramVariables, bonusTombants)) ||
-        (contact_raq_bonus xraq bonusTombants)
+        (contact_raq_bonus xraq bonusTombants long_raq)
     
     module FF = FreeFall (F)
 
@@ -505,7 +538,6 @@ let _  =
   (* TODO : Elargissement raquette *)
   (* TODO : Rétrécissement raquette *)
   (* TODO : Inversion contrôles *)
-  (* TODO : Duplication de balle *)
   (* TODO : Bonus tombant *)
   Draw.draw (Bounce.run (Init.reset Init.statut));;
 
