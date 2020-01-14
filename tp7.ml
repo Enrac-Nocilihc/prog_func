@@ -86,12 +86,28 @@ struct
   let haut_ecran = 600.
 
 
-
-  (* Blocs *)
-  let largeur_bloc = 100
-  let hauteur_bloc = 20
   
 end
+
+module Blocs =
+struct
+
+  include Parametres
+
+  (* Blocs *)
+  let largeur_bloc = 50
+  let hauteur_bloc = 20
+
+  let genererLigne y nbBlocs pui =
+    let espace = (long_ecran -. float_of_int (nbBlocs * largeur_bloc)) /. (2. +. (float_of_int (nbBlocs - 1)) /. 2.) in
+      let rec ajouterBloc x y nbBlocs pui =
+        let bloc = (x, y, pui) in
+          if nbBlocs = 0 then []
+          else bloc::(ajouterBloc (x + int_of_float (espace /. 2.) + largeur_bloc) y (nbBlocs-1) pui)
+      in ajouterBloc (int_of_float espace) y nbBlocs pui 
+
+end
+
 
 module Balle =
 struct
@@ -134,6 +150,7 @@ struct
   include Parametres
   include Raquette
   include Balle
+  include Blocs
 
 end
 
@@ -174,8 +191,12 @@ module Drawing (F : Frame) =
               draw_circle (int_of_float x) (int_of_float y) rayon_ball;
             in
 
-            let draw_bloc (x, y, color) =
-              set_color color; 
+            let draw_bloc (x, y, power) =
+              if power = 1 then set_color green;
+              if power = 2 then set_color blue;
+              if power = 3 then set_color magenta;
+              if power = 4 then set_color red;
+              if power = 5 then set_color black;
               fill_rect x y largeur_bloc hauteur_bloc
             in
 
@@ -265,27 +286,33 @@ module Bouncing (F : Frame) =
     let bords blocs = List.map bords_solo blocs
         
 
-    let contact_bloc_x ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y =
-      yb y < yh_bloc && yh y > yb_bloc && ((xd x >= xg_bloc && xd x <= xd_bloc) || (xg x <= xd_bloc && xg x >= xg_bloc))
+    let contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y dy = 
+      xg x < xd_bloc && xd x > xg_bloc && (
+        (yh y >= yb_bloc && yh y <= yb_bloc +. float_of_int hauteur_bloc /. 4. && dy > 0.) || 
+        (yb y <= yh_bloc && yb y >= yh_bloc -. float_of_int hauteur_bloc /. 4. && dy < 0.))
+
+    let contact_bloc_x ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y dx =
+      (* not (contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y) && *)
+      yb y < yh_bloc && yh y > yb_bloc && (
+        (xd x >= xg_bloc && xd x <= xg_bloc +. float_of_int largeur_bloc /. 4. && dx > 0.) || 
+        (xg x <= xd_bloc && xg x >= xd_bloc -. float_of_int largeur_bloc /. 4. && dx < 0.))
       
-    let contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y = 
-      xg x < xd_bloc && xd x > xg_bloc && ((yh y >= yb_bloc && yh y <= yh_bloc) || (yb y <= yh_bloc && yb y >= yb_bloc))
 
-    let contact_blocs_x blocs x y = 
-      List.fold_right (fun bloc reste -> (contact_bloc_x bloc x y) || reste) (bords blocs) false
+    let contact_blocs_x blocs x y dx = 
+      List.fold_right (fun bloc reste -> (contact_bloc_x bloc x y dx) || reste) (bords blocs) false
 
-    let contact_blocs_y blocs x y = 
-      List.fold_right (fun bloc reste -> (contact_bloc_y bloc x y) || reste) (bords blocs) false
+    let contact_blocs_y blocs x y dy = 
+      List.fold_right (fun bloc reste -> (contact_bloc_y bloc x y dy) || reste) (bords blocs) false
 
 
     let contact_x (infx, supx) blocs x y dx = 
       ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || 
       ((x +. (float_of_int rayon_ball)) >= supx && dx > 0.) ||
-      contact_blocs_x blocs x y
+      contact_blocs_x blocs x y dx
 
     let contact_y (infy, supy) blocs x y dy = 
       ((y +. (float_of_int rayon_ball) >= supy && dy > 0.)) ||
-      contact_blocs_y blocs x y
+      contact_blocs_y blocs x y dy
 
     let contact_raq xraq x y dy = 
       dy < 0. && 
@@ -294,9 +321,9 @@ module Bouncing (F : Frame) =
       float_of_int xraq -. long_raq /. 2. < x && 
       float_of_int xraq +. long_raq /. 2. > x
 
-    let contact_bloc ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y = 
-      contact_bloc_x ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y  ||
-      contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y
+    let contact_bloc ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y dx dy= 
+      contact_bloc_x ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y dx ||
+      contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y dy
               
     (*let contact_bloc blocs x dx = 
       List.*)
@@ -315,7 +342,14 @@ module Bouncing (F : Frame) =
         let dist_centre = x -. (float_of_int xraq) in
         let ratio_centre = (dist_centre /. (long_raq /. 2.)) in
         let thetaAjoute = (if (contact_raq xraq x (yb y) dy) then ratio_centre *. 3.1415 /. 4. else 0.) in
-        let new_blocs = List.fold_right (fun t q -> if (contact_bloc (bords_solo t) x y) then q else t::q ) blocs [] in
+        let new_blocs = List.fold_right 
+          (fun t q ->
+            if (contact_bloc (bords_solo t) x y dx dy) then 
+              let (px, py, pui) = t in 
+                if(pui = 1) then q
+                else (px, py, pui - 1)::q
+            else t::q 
+          ) blocs [] in
           ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs)
 
     let contact ((x, y), (dx, dy), blocs) = 
@@ -342,12 +376,15 @@ module Draw = Drawing (Init)
 module Bounce = Bouncing (Init)
 
 let _  =
-  let position0 = (300., 400.) in
-  let vitesse0 = (100., -500.) in
-  let blocsInit = [
-    (100, 500, black);
-    (300, 500, red);
-    (500, 500, yellow)] in
+  let position0 = (Parametres.long_ecran /. 2., 150.) in
+  let vitesse0 = (100., 100.) in
+  let blocsInit = 
+    (Blocs.genererLigne 500 5 5)
+    @ (Blocs.genererLigne 450 6 4)
+    @ (Blocs.genererLigne 400 7 3)
+    @ (Blocs.genererLigne 350 8 2)
+    @ (Blocs.genererLigne 300 9 1)
+  in
   Draw.draw (Bounce.run (position0, vitesse0, blocsInit));;
 
 
