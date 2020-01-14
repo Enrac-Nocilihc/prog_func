@@ -98,9 +98,10 @@ struct
 
   (* Balle *)
   let rayon_ball = 5
+  let color_ball = black
 
 
-  let coord_rel x sens = x + rayon_ball * sens
+  let coord_rel x sens = x +. float_of_int(rayon_ball * sens)
   let xd x = coord_rel x 1
   let xg x = coord_rel x (-1)
   let yh y = coord_rel y 1
@@ -117,6 +118,7 @@ struct
   let long_raq = 100.
   let hraq = 20.
   let yraq = 50
+  let color_raq = red
 
   let get_xraq = 
     (fun xsouris ->
@@ -162,19 +164,27 @@ module Drawing (F : Frame) =
             (* Définition des fonctions graphiques *)
             
             let draw_raquette =
-              let x = get_xraq (fst (Graphics.mouse_pos ())) in
-                Graphics.fill_rect (int_of_float (float_of_int x -. (long_raq)/.2.)) yraq (int_of_float long_raq) (int_of_float hraq);
+              set_color color_raq;
+              let x = get_xraq (fst (mouse_pos ())) in
+                fill_rect (int_of_float (float_of_int x -. (long_raq)/.2.)) yraq (int_of_float long_raq) (int_of_float hraq);
             in
 
             let draw_balle =
-              Graphics.draw_circle (int_of_float x) (int_of_float y) rayon_ball;
+              set_color color_ball;
+              draw_circle (int_of_float x) (int_of_float y) rayon_ball;
+            in
+
+            let draw_bloc (x, y, color) =
+              set_color color; 
+              fill_rect x y largeur_bloc hauteur_bloc
             in
 
 
             (* Application des fonctions graphiques *)
+            set_color black;
             draw_balle;
             draw_raquette;
-            List.iter (fun (x, y) -> Graphics.fill_rect x y largeur_bloc hauteur_bloc) blocs;
+            List.iter draw_bloc blocs;
             Graphics.synchronize ();
             (*ignore (read_line ());*)
             ref_r := r'
@@ -230,6 +240,8 @@ module Bouncing (F : Frame) =
 
     include All
 
+    let acceleration = 1.01
+
     (* version avec unfold sans récursivité directe *)
     let unless flux cond f_cond =
       Flux.unfold (fun (init, f) ->
@@ -246,26 +258,26 @@ module Bouncing (F : Frame) =
                 | Some (t, q) -> if cond t then Flux.uncons (f_cond t) else Some (t, unless q cond f_cond)
         ))
 
-    let contact_x (infx, supx) x dx = ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || ((x +. (float_of_int rayon_ball)) >= supx && dx > 0.)
+    let contact_x (infx, supx) x dx = 
+      ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || 
+      ((x +. (float_of_int rayon_ball)) >= supx && dx > 0.)
     let contact_y (infy, supy) y dy = ((y +. (float_of_int rayon_ball) >= supy && dy > 0.))
-    let contact_raq (xraq, yraq) x y dy = 
+    let contact_raq xraq x y dy = 
       dy < 0. && 
-      float_of_int yraq +. h_raq > (y -. (float_of_int rayon_ball)) && 
-      float_of_int yraq < y && 
+      float_of_int yraq +. hraq > yb y && 
+      float_of_int yraq < yb y && 
       float_of_int xraq -. long_raq /. 2. < x && 
       float_of_int xraq +. long_raq /. 2. > x
 
-    let contact_bloc_x ((xg_bloc, xd_bloc), (yh_bloc, yb_bloc)) x y =
-      (xg_bloc <= x +. (float_of_int rayon_ball) && (xd_bloc > x) && (yh_bloc >= y) && (yb_bloc <= y)) ||
-      (xd_bloc >= x -. (float_of_int rayon_ball) && (xg_bloc < x) && (yh_bloc >= y) && (yb_bloc <= y))
+    let contact_bloc_x ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y =
+      yb y < yh_bloc && yh y > yb_bloc && ((xd x >= xg_bloc && xd x <= xd_bloc) || (xg x <= xd_bloc && xg x >= xg_bloc))
       
-    let contact_bloc_y ((xg_bloc, xd_bloc), (yh_bloc, yb_bloc)) x y = 
-      (yh_bloc >= y -. (float_of_int rayon_ball) && (yb_bloc < y) && (xg_bloc <= x) && (xd_bloc >= x)) ||
-      (yb_bloc <= y +. (float_of_int rayon_ball) && (yh_bloc > y) && (xg_bloc <= x) && (xd_bloc >= x))
+    let contact_bloc_y ((xg_bloc, xd_bloc), (yb_bloc, yh_bloc)) x y = 
+      xg x < xd_bloc && xd x > xg_bloc && ((yh y >= yb_bloc && yh y <= yh_bloc) || (yb y <= yh_bloc && yb y >= yb_bloc))
 
     let bords blocs = List.map (fun (x, y, _) -> 
-        (((float_of_int x), (float_of_int x) +. (float_of_int largeur_bloc)), 
-        ((float_of_int y) +. (float_of_int hauteur_bloc), (float_of_int y)))) blocs
+        ((float_of_int x, (float_of_int x) +. (float_of_int largeur_bloc)), 
+        ((float_of_int y, (float_of_int y) +. (float_of_int hauteur_bloc) )))) blocs
 
     let contact_blocs_x blocs x y = 
       List.fold_right (fun bloc reste -> (contact_bloc_x bloc x y) || reste) (bords blocs) false
@@ -277,12 +289,20 @@ module Bouncing (F : Frame) =
       List.*)
 
     let rebond ((x, y), (dx, dy)) =
+      
+      let pivote (vx, vy) theta =
+        (vx *. cos theta +. vy *. sin theta,
+        -.vx *. sin theta +. vy *. cos theta)
+      in
+
       let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
-        (x, y),
-        (
-          (if contact_x F.box_x x dx then -. dx else dx),
-          (if (contact_y F.box_y y dy) || (contact_raq xraq x (yb y) dy) then -. dy else dy)
-        )
+        
+        let new_dx = (if contact_x F.box_x x dx then -. dx *. acceleration else dx) in
+        let new_dy = (if (contact_y F.box_y y dy) || (contact_raq xraq x (yb y) dy) then -. dy *. acceleration else dy) in
+        let dist_centre = x -. (float_of_int xraq) in
+        let ratio_centre = (dist_centre /. (long_raq /. 2.)) in
+        let thetaAjoute = (if (contact_raq xraq x (yb y) dy) then ratio_centre *. 3.1415 /. 4. else 0.) in
+          ((x, y), pivote (new_dx, new_dy) thetaAjoute)
 
     let contact ((x, y), (dx, dy)) = 
       let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
@@ -308,7 +328,7 @@ module Bounce = Bouncing (Init)
 
 let _  =
   let position0 = (300., 400.) in
-  let vitesse0 = (500., -200.) in
+  let vitesse0 = (100., -500.) in
   Draw.draw (Bounce.run (position0, vitesse0));;
 
 
