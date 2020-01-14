@@ -144,6 +144,27 @@ struct
 
 end
 
+
+module Bonus =
+struct
+
+  (* Balle *)
+  let rayon_bonus = 10
+  let bonusTaille = (green, 1)
+  let malusTaille = (red, 2) 
+  let listeBonus = [bonusTaille; malusTaille]
+
+
+  let coord_relB x sens = x +. float_of_int(rayon_bonus * sens)
+  let xdB x = coord_relB x 1
+  let xgB x = coord_relB x (-1)
+  let yhB y = coord_relB y 1
+  let ybB y = coord_relB y (-1)
+
+
+end
+
+
 module All =
 struct
 
@@ -151,6 +172,7 @@ struct
   include Raquette
   include Balle
   include Blocs
+  include Bonus
 
 end
 
@@ -173,9 +195,9 @@ module Init =
       @ (Blocs.genererLigne 300 9 1)
     
     let statut = (0, 3) (* Score / Vies *) 
+    let bonusInit = [] (* Bonus de la forme (x,y,dy,type) *)
     let paramVariables = (100, false) (* Longueur raquette / Inversion des contrôles  *)
     let ballesInit = [(position0, vitesse0)] 
-    let bonusInit = [] (* Bonus de la forme (x,y,dy,type) *)
     (* TODO : Elargissement raquette *)
     (* TODO : Rétrécissement raquette *)
     (* TODO : Inversion contrôles *)
@@ -184,7 +206,7 @@ module Init =
     (* TODO : Duplication de balle *)
     (* TODO : Bonus tombant *)
 
-    let reset newStatut = (ballesInit, blocsInit, newStatut, paramVariables)
+    let reset newStatut = (ballesInit, blocsInit, newStatut, paramVariables, bonusInit)
       
   end
 
@@ -207,7 +229,7 @@ module Drawing (F : Frame) =
               Sys.(set_signal sigalrm !ref_handler_alrm);
               Sys.(set_signal sigint  !ref_handler_int)
             end
-        | Some ((balles, blocs, (score, vies), _), r') ->
+        | Some ((balles, blocs, (score, vies), _, bonusTombants), r') ->
             begin
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
@@ -301,7 +323,7 @@ module FreeFall (F : Frame) =
         Tick (lazy (Some (init, Flux.map2 (fun a f -> a |+| (dt |*| f)) acc flux)))
       in acc
 
-    let run (balles, blocs, statut, paramVariables) =
+    let run (balles, blocs, statut, paramVariables, bonusTombants) =
       let rec newBalles listeBalles =
         match listeBalles with
         | [] -> Flux.constant ([])
@@ -312,7 +334,18 @@ module FreeFall (F : Frame) =
             let fluxCouples = (Flux.map2 (fun p v -> (p, v)) position vitesse) in
               Flux.map2 (fun elt l -> elt::l) fluxCouples (newBalles q) 
       in
-        Flux.map (fun a -> (a, blocs, statut, paramVariables)) (newBalles balles)
+
+      let rec newBonus listeBonus =
+        match listeBonus with
+        | [] -> Flux.constant ([])
+        | (x, y, dy, typeBonus)::q ->
+          let acceleration = Flux.constant (0., 0.) in
+          let vitesse      = Flux.(map2 ( |+| ) (constant (0., dy)) (integre F.dt acceleration)) in
+          let position     = Flux.(map2 ( |+| ) (constant (x, y)) (integre F.dt vitesse)) in
+            let fluxCouples = (Flux.map2 (fun (x, y) (_, dy) -> (x, y, dy, typeBonus)) position vitesse) in
+              Flux.map2 (fun elt l -> elt::l) fluxCouples (newBonus q) 
+        in
+        Flux.map2 (fun posvit bon -> (posvit, blocs, statut, paramVariables, bon)) (newBalles balles) (newBonus bonusTombants)
   end
 
 module Bouncing (F : Frame) =
@@ -416,7 +449,7 @@ module Bouncing (F : Frame) =
           ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raquette, inv_controles) ) (* TODO : Longueur et inversion *)
 
 
-    let rebond (balles, blocs, (score,vies), (long_raquette, inv_controles)) =
+    let rebond (balles, blocs, (score,vies), (long_raquette, inv_controles), bonusTombants) =
 
       let rec rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) = 
         let addBalle (ba, bl, s, v) b =
@@ -432,14 +465,31 @@ module Bouncing (F : Frame) =
       in
         let (b, bl, s, v) = rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) in
         match b with
-        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables)
-        | _ -> (b, bl, s, v)
+        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, bonusTombants)
+        | _ -> (b, bl, s, v, bonusTombants)
 
-    let rec contact (balles, blocs, statut, paramVariables) = 
+
+    let contact_raq_bonus xraq bonusTombants =
+
+      let contact_bonus xraq (x, y, _, _) =
+        float_of_int yraq +. hraq > ybB y && 
+        float_of_int yraq < yhB y && 
+        float_of_int xraq -. long_raq /. 2. < x && 
+        float_of_int xraq +. long_raq /. 2. > x
+      in
+      List.fold_right (fun t q -> (contact_bonus xraq t || q)) bonusTombants false 
+      
+
+    let rec contact (balles, blocs, statut, paramVariables, bonusTombants) = 
       let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
       match balles with
       | [] -> false
-      | ((x,y), (dx,dy))::q -> (contact_x F.box_x blocs x y dx) || (contact_y F.box_y blocs x y dy) || (contact_raq xraq x y dy) || (contact (q, blocs, statut, paramVariables))
+      | ((x,y), (dx,dy))::q -> 
+        (contact_x F.box_x blocs x y dx) || 
+        (contact_y F.box_y blocs x y dy) || 
+        (contact_raq xraq x y dy) || 
+        (contact (q, blocs, statut, paramVariables, bonusTombants)) ||
+        (contact_raq_bonus xraq bonusTombants)
     
     module FF = FreeFall (F)
 
@@ -455,8 +505,6 @@ let _  =
   (* TODO : Elargissement raquette *)
   (* TODO : Rétrécissement raquette *)
   (* TODO : Inversion contrôles *)
-  (* TODO : Score *)
-  (* TODO : Vies *)
   (* TODO : Duplication de balle *)
   (* TODO : Bonus tombant *)
   Draw.draw (Bounce.run (Init.reset Init.statut));;
