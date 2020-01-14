@@ -175,6 +175,7 @@ module Init =
     let statut = (0, 3) (* Score / Vies *) 
     let paramVariables = (100, false) (* Longueur raquette / Inversion des contrôles  *)
     let ballesInit = [(position0, vitesse0)] 
+    let bonusInit = [] (* Bonus de la forme (x,y,dy,type) *)
     (* TODO : Elargissement raquette *)
     (* TODO : Rétrécissement raquette *)
     (* TODO : Inversion contrôles *)
@@ -206,7 +207,7 @@ module Drawing (F : Frame) =
               Sys.(set_signal sigalrm !ref_handler_alrm);
               Sys.(set_signal sigint  !ref_handler_int)
             end
-        | Some ((balles, blocs, _, _), r') ->
+        | Some ((balles, blocs, (score, vies), _), r') ->
             begin
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
@@ -221,6 +222,7 @@ module Drawing (F : Frame) =
             in
 
             let draw_balle ((x,y),_) =
+              Format.printf "y=%f@."y ;
               set_color color_ball;
               draw_circle (int_of_float x) (int_of_float y) rayon_ball;
             in
@@ -234,11 +236,27 @@ module Drawing (F : Frame) =
               fill_rect x y largeur_bloc hauteur_bloc
             in
 
+            let draw_score =
+              moveto 20 20;
+              set_color black;
+              set_font "-*-fixed-medium-r-semicondensed--25-*-*-*-*-*-iso8859-1";
+              draw_string "Score : ";
+              draw_string (string_of_int score);
+            in
+
+            let draw_vies =
+              moveto (int_of_float long_ecran - 150) 20;
+              set_color red;
+              set_font "-*-fixed-medium-r-semicondensed--25-*-*-*-*-*-iso8859-1";
+              draw_string "Vies : ";
+              draw_string (string_of_int vies);
+            in
 
             (* Application des fonctions graphiques *)
             set_color black;
             List.iter draw_balle balles;
             draw_raquette;
+            draw_score;
             List.iter draw_bloc blocs;
             Graphics.synchronize ();
             (*ignore (read_line ());*)
@@ -355,6 +373,7 @@ module Bouncing (F : Frame) =
 
     let contact_y (infy, supy) blocs x y dy = 
       ((y +. (float_of_int rayon_ball) >= supy && dy > 0.)) ||
+      ((y -. (float_of_int rayon_ball)) <= infy && dy < 0.) ||
       contact_blocs_y blocs x y dy
 
     let contact_raq xraq x y dy = 
@@ -371,7 +390,7 @@ module Bouncing (F : Frame) =
     (*let contact_bloc blocs x dx = 
       List.*)
 
-    let rebond_balle ((x, y), (dx, dy), blocs, score, (long_raquette, inv_controles)) =
+    let rebond_balle ((x, y), (dx, dy), blocs, (score,vies), (long_raquette, inv_controles)) =
       
       let pivote (vx, vy) theta =
         (vx *. cos theta +. vy *. sin theta,
@@ -385,7 +404,7 @@ module Bouncing (F : Frame) =
         let dist_centre = x -. (float_of_int xraq) in
         let ratio_centre = (dist_centre /. (long_raq /. 2.)) in
         let thetaAjoute = (if (contact_raq xraq x (yb y) dy) then ratio_centre *. 3.1415 /. 4. else 0.) in
-        let newScore = score + (if contact_blocs blocs x y dx dy then 20 else 0) in
+        let newScore = score + (if contact_blocs blocs x y dx dy then 20 * vies else 0) in
         let new_blocs = List.fold_right 
           (fun t q ->
             if (contact_bloc (bords_solo t) x y dx dy) then 
@@ -397,15 +416,24 @@ module Bouncing (F : Frame) =
           ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raquette, inv_controles) ) (* TODO : Longueur et inversion *)
 
 
-    let rec rebond (balles, blocs, (score,vies), (long_raquette, inv_controles)) =
-      let addBalle (ba, bl, s, v) b =
-        (b::ba, bl, s, v)
+    let rebond (balles, blocs, (score,vies), (long_raquette, inv_controles)) =
+
+      let rec rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) = 
+        let addBalle (ba, bl, s, v) b =
+          (b::ba, bl, s, v)
+        in
+          match balles with
+          | [] -> ([], blocs, (score, vies), Init.paramVariables) (* TODO : Terminaison du jeu *)
+          | (pos, vit)::q -> 
+            if (yb(*Modifier en xh*) (snd pos)) < 0. then rebondRec (q, blocs, (score,vies), (long_raquette, inv_controles))
+            else
+              let (pos2, vit2, newBlocs, newScore, (new_long_raquette, new_inv_controles) ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raquette, inv_controles)) in
+                addBalle (rebondRec (q, newBlocs, (newScore,vies), (new_long_raquette, new_inv_controles))) (pos2, vit2)
       in
-        match balles with
-        | [] -> ([], blocs, (score, vies), Init.paramVariables) (* TODO : Terminaison du jeu *)
-        | (pos, vit)::q -> 
-          let (pos2, vit2, newBlocs, newScore, (new_long_raquette, new_inv_controles) ) = rebond_balle (pos, vit, blocs, score, (long_raquette, inv_controles)) in
-            addBalle (rebond (q, newBlocs, (newScore,vies), (new_long_raquette, new_inv_controles))) (pos2, vit2)
+        let (b, bl, s, v) = rebondRec (balles, blocs, (score,vies), (long_raquette, inv_controles)) in
+        match b with
+        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables)
+        | _ -> (b, bl, s, v)
 
     let rec contact (balles, blocs, statut, paramVariables) = 
       let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
