@@ -154,6 +154,40 @@ struct
 
 end
 
+module Init =
+  struct
+
+    include All
+
+    let dt = 0.01
+    let box_x = (0., long_ecran)
+    let box_y = (0., haut_ecran)
+
+    let position0 = (Parametres.long_ecran /. 2., 150.)
+    let vitesse0 = (100., 100.)
+    let blocsInit = 
+      (Blocs.genererLigne 500 5 5)
+      @ (Blocs.genererLigne 450 6 4)
+      @ (Blocs.genererLigne 400 7 3)
+      @ (Blocs.genererLigne 350 8 2)
+      @ (Blocs.genererLigne 300 9 1)
+    
+    let statut = (0, 3) (* Score / Vies *) 
+    let paramVariables = (100, false) (* Longueur raquette / Inversion des contrôles  *)
+    let ballesInit = [(position0, vitesse0)] 
+    (* TODO : Elargissement raquette *)
+    (* TODO : Rétrécissement raquette *)
+    (* TODO : Inversion contrôles *)
+    (* TODO : Score *)
+    (* TODO : Vies *)
+    (* TODO : Duplication de balle *)
+    (* TODO : Bonus tombant *)
+
+    let reset newStatut = (ballesInit, blocsInit, newStatut, paramVariables)
+      
+  end
+
+
 module Drawing (F : Frame) =
   struct
 
@@ -172,7 +206,7 @@ module Drawing (F : Frame) =
               Sys.(set_signal sigalrm !ref_handler_alrm);
               Sys.(set_signal sigint  !ref_handler_int)
             end
-        | Some (((x, y), (dx, dy), blocs), r') ->
+        | Some ((balles, blocs, _, _), r') ->
             begin
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
@@ -186,7 +220,7 @@ module Drawing (F : Frame) =
                 fill_rect (int_of_float (float_of_int x -. (long_raq)/.2.)) yraq (int_of_float long_raq) (int_of_float hraq);
             in
 
-            let draw_balle =
+            let draw_balle ((x,y),_) =
               set_color color_ball;
               draw_circle (int_of_float x) (int_of_float y) rayon_ball;
             in
@@ -203,7 +237,7 @@ module Drawing (F : Frame) =
 
             (* Application des fonctions graphiques *)
             set_color black;
-            draw_balle;
+            List.iter draw_balle balles;
             draw_raquette;
             List.iter draw_bloc blocs;
             Graphics.synchronize ();
@@ -249,11 +283,18 @@ module FreeFall (F : Frame) =
         Tick (lazy (Some (init, Flux.map2 (fun a f -> a |+| (dt |*| f)) acc flux)))
       in acc
 
-    let run (position0, vitesse0, blocs) =
-      let acceleration = Flux.constant (0., 0.) in
-      let vitesse      = Flux.(map2 ( |+| ) (constant vitesse0) (integre F.dt acceleration)) in
-      let position     = Flux.(map2 ( |+| ) (constant position0) (integre F.dt vitesse)) in
-      Flux.map2 (fun a b -> (a, b, blocs)) position vitesse
+    let run (balles, blocs, statut, paramVariables) =
+      let rec newBalles listeBalles =
+        match listeBalles with
+        | [] -> Flux.constant ([])
+        | (position0, vitesse0)::q ->
+          let acceleration = Flux.constant (0., 0.) in
+          let vitesse      = Flux.(map2 ( |+| ) (constant vitesse0) (integre F.dt acceleration)) in
+          let position     = Flux.(map2 ( |+| ) (constant position0) (integre F.dt vitesse)) in
+            let fluxCouples = (Flux.map2 (fun p v -> (p, v)) position vitesse) in
+              Flux.map2 (fun elt l -> elt::l) fluxCouples (newBalles q) 
+      in
+        Flux.map (fun a -> (a, blocs, statut, paramVariables)) (newBalles balles)
   end
 
 module Bouncing (F : Frame) =
@@ -304,6 +345,8 @@ module Bouncing (F : Frame) =
     let contact_blocs_y blocs x y dy = 
       List.fold_right (fun bloc reste -> (contact_bloc_y bloc x y dy) || reste) (bords blocs) false
 
+    let contact_blocs blocs x y dx dy =
+      contact_blocs_x blocs x y dx || contact_blocs_y blocs x y dy
 
     let contact_x (infx, supx) blocs x y dx = 
       ((x -. (float_of_int rayon_ball)) <= infx && dx < 0.) || 
@@ -328,7 +371,7 @@ module Bouncing (F : Frame) =
     (*let contact_bloc blocs x dx = 
       List.*)
 
-    let rebond ((x, y), (dx, dy), blocs) =
+    let rebond_balle ((x, y), (dx, dy), blocs, score, (long_raquette, inv_controles)) =
       
       let pivote (vx, vy) theta =
         (vx *. cos theta +. vy *. sin theta,
@@ -342,6 +385,7 @@ module Bouncing (F : Frame) =
         let dist_centre = x -. (float_of_int xraq) in
         let ratio_centre = (dist_centre /. (long_raq /. 2.)) in
         let thetaAjoute = (if (contact_raq xraq x (yb y) dy) then ratio_centre *. 3.1415 /. 4. else 0.) in
+        let newScore = score + (if contact_blocs blocs x y dx dy then 20 else 0) in
         let new_blocs = List.fold_right 
           (fun t q ->
             if (contact_bloc (bords_solo t) x y dx dy) then 
@@ -350,11 +394,24 @@ module Bouncing (F : Frame) =
                 else (px, py, pui - 1)::q
             else t::q 
           ) blocs [] in
-          ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs)
+          ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raquette, inv_controles) ) (* TODO : Longueur et inversion *)
 
-    let contact ((x, y), (dx, dy), blocs) = 
+
+    let rec rebond (balles, blocs, (score,vies), (long_raquette, inv_controles)) =
+      let addBalle (ba, bl, s, v) b =
+        (b::ba, bl, s, v)
+      in
+        match balles with
+        | [] -> ([], blocs, (score, vies), Init.paramVariables) (* TODO : Terminaison du jeu *)
+        | (pos, vit)::q -> 
+          let (pos2, vit2, newBlocs, newScore, (new_long_raquette, new_inv_controles) ) = rebond_balle (pos, vit, blocs, score, (long_raquette, inv_controles)) in
+            addBalle (rebond (q, newBlocs, (newScore,vies), (new_long_raquette, new_inv_controles))) (pos2, vit2)
+
+    let rec contact (balles, blocs, statut, paramVariables) = 
       let xraq = get_xraq (fst (Graphics.mouse_pos ())) in
-      (contact_x F.box_x blocs x y dx) || (contact_y F.box_y blocs x y dy) || (contact_raq xraq x y dy)
+      match balles with
+      | [] -> false
+      | ((x,y), (dx,dy))::q -> (contact_x F.box_x blocs x y dx) || (contact_y F.box_y blocs x y dy) || (contact_raq xraq x y dy) || (contact (q, blocs, statut, paramVariables))
     
     module FF = FreeFall (F)
 
@@ -362,30 +419,19 @@ module Bouncing (F : Frame) =
       unless (FF.run etat0) contact (fun etat -> run (rebond etat))
   end
 
-module Init =
-  struct
-
-    include All
-
-    let dt = 0.01
-    let box_x = (0., long_ecran)
-    let box_y = (0., haut_ecran)
-  end
 
 module Draw = Drawing (Init)
 module Bounce = Bouncing (Init)
 
 let _  =
-  let position0 = (Parametres.long_ecran /. 2., 150.) in
-  let vitesse0 = (100., 100.) in
-  let blocsInit = 
-    (Blocs.genererLigne 500 5 5)
-    @ (Blocs.genererLigne 450 6 4)
-    @ (Blocs.genererLigne 400 7 3)
-    @ (Blocs.genererLigne 350 8 2)
-    @ (Blocs.genererLigne 300 9 1)
-  in
-  Draw.draw (Bounce.run (position0, vitesse0, blocsInit));;
+  (* TODO : Elargissement raquette *)
+  (* TODO : Rétrécissement raquette *)
+  (* TODO : Inversion contrôles *)
+  (* TODO : Score *)
+  (* TODO : Vies *)
+  (* TODO : Duplication de balle *)
+  (* TODO : Bonus tombant *)
+  Draw.draw (Bounce.run (Init.reset Init.statut));;
 
 
 
