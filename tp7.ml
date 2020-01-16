@@ -136,11 +136,12 @@ struct
   let yraq = 50
   let color_raq = red
 
-  let get_xraq long_raq = 
-    (fun xsouris ->
-      if xsouris > int_of_float (long_ecran -. long_raq/.2.) then int_of_float (long_ecran -. long_raq/.2.)
+  let get_xraq long_raq xsouris inv_contr = 
+      let new_xsouris =
+      (if xsouris > int_of_float (long_ecran -. long_raq/.2.) then int_of_float (long_ecran -. long_raq/.2.)
       else if xsouris < int_of_float (long_raq/.2.) then int_of_float (long_raq/.2.)
-      else xsouris)
+      else xsouris) in
+      if inv_contr then int_of_float long_ecran - new_xsouris else new_xsouris
 
 end
 
@@ -153,8 +154,9 @@ struct
   let bonusTaille = (green, 1)
   let malusTaille = (red, 2) 
   let bonusBalle = (black, 3) 
+  let invControle = (magenta, 4)
 
-  let listeBonus = [bonusTaille; bonusBalle; malusTaille]
+  let listeBonus = [malusTaille; bonusTaille; bonusBalle; invControle]
   let vitBon = -100.
   let plusLong = 50.
   let moinsLong = 25.
@@ -189,9 +191,10 @@ module Init =
     let dt = 0.01
     let box_x = (0., long_ecran)
     let box_y = (0., haut_ecran)
+    let alea = 1. (* Chances d'avoir un bonus *)
 
     let position0 = (Parametres.long_ecran /. 2., 150.)
-    let vitesse0 = (100., 100.)
+    let vitesse0 = (200., 200.)
     let blocsInit = 
       (Blocs.genererLigne 500 5 5)
       @ (Blocs.genererLigne 450 6 4)
@@ -199,18 +202,10 @@ module Init =
       @ (Blocs.genererLigne 350 8 2)
       @ (Blocs.genererLigne 300 9 1)
     
-    let statut = (0, 3) (* Score / Vies *) 
+    let statut = (0, 1) (* Score / Vies *) 
     let bonusInit = [] (* Bonus de la forme (x,y,dy,type) *)
     let paramVariables = (100., false) (* Longueur raquette / Inversion des contrôles  *)
     let ballesInit = [(position0, vitesse0)] 
-    (* TODO : Elargissement raquette *)
-    (* TODO : Rétrécissement raquette *)
-    (* TODO : Inversion contrôles *)
-    (* TODO : Score *)
-    (* TODO : Vies *)
-    (* TODO : Duplication de balle *)
-    (* TODO : Bonus tombant *)
-
     let reset newStatut = (ballesInit, blocsInit, newStatut, paramVariables, bonusInit)
       
   end
@@ -226,6 +221,9 @@ module Drawing (F : Frame) =
     let ref_r = ref r in
     let ref_handler_alrm = ref Sys.(Signal_handle (fun _ -> ())) in
     let ref_handler_int  = ref Sys.(Signal_handle (fun _ -> ())) in
+
+    let handle_char c = if Char.code c = 27 then exit 0 in 
+    
     let handler_alrm i =
       begin
         match Flux.uncons !ref_r with
@@ -234,7 +232,7 @@ module Drawing (F : Frame) =
               Sys.(set_signal sigalrm !ref_handler_alrm);
               Sys.(set_signal sigint  !ref_handler_int)
             end
-        | Some ((balles, blocs, (score, vies), (long_raq, _), bonusTombants), r') ->
+        | Some ((balles, blocs, (score, vies), (long_raq, inv_contr), bonusTombants), r') ->
             begin
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
@@ -242,9 +240,9 @@ module Drawing (F : Frame) =
 
             (* Définition des fonctions graphiques *)
             
-            let draw_raquette =
+            let draw_raquette long_raq =
               set_color color_raq;
-              let x = get_xraq long_raq (fst (mouse_pos ())) in
+              let x = get_xraq long_raq (fst (mouse_pos ())) inv_contr in
                 fill_rect (int_of_float (float_of_int x -. (long_raq)/.2.)) yraq (int_of_float long_raq) (int_of_float hraq);
             in
 
@@ -267,31 +265,55 @@ module Drawing (F : Frame) =
               fill_rect x y largeur_bloc hauteur_bloc
             in
 
-            let draw_score =
+            let draw_score score couleur =
               moveto 20 20;
-              set_color black;
+              set_color couleur;
               set_font "-*-fixed-medium-r-semicondensed--25-*-*-*-*-*-iso8859-1";
               draw_string "Score : ";
               draw_string (string_of_int score);
             in
 
-            let draw_vies =
+            let draw_vies vies couleur =
+              
               moveto (int_of_float long_ecran - 150) 20;
-              set_color red;
+              set_color couleur;
               set_font "-*-fixed-medium-r-semicondensed--25-*-*-*-*-*-iso8859-1";
               draw_string "Vies : ";
               draw_string (string_of_int vies);
             in
 
+            let draw_game_over score vies =
+              set_color black;
+              moveto 0 0;
+              fill_rect 0 0 (int_of_float long_ecran) (int_of_float haut_ecran);
+              moveto (int_of_float (long_ecran /. 10.)) (int_of_float (haut_ecran /. 2.));
+              set_color white;
+              set_font "-*-fixed-medium-r-semicondensed--150-*-*-*-*-*-iso8859-1";
+              draw_string "Game Over";
+              moveto (int_of_float (long_ecran /. 3.2)) (int_of_float (haut_ecran /. 2.2));
+              set_font "-*-fixed-medium-r-semicondensed--20-*-*-*-*-*-iso8859-1";
+              draw_string "Appuyez sur ESC pour sortir...";
+              draw_score score white;
+              draw_vies vies white;
+
+            in 
+
+
             (* Application des fonctions graphiques *)
-            set_color black;
-            List.iter draw_balle balles;
-            draw_raquette;
-            draw_score;
-            draw_vies;
-            List.iter draw_bonus bonusTombants;
-            List.iter draw_bloc blocs;
+            if (vies <> 0) then
+              (set_color black;
+              List.iter draw_balle balles;
+              List.iter draw_bonus bonusTombants;
+              draw_raquette long_raq;
+              draw_score score black;
+              draw_vies vies red;
+              List.iter draw_bloc blocs;)
+            else
+              draw_game_over score vies;
+
             Graphics.synchronize ();
+            (* Traitement de la touche ESC *)
+            if key_pressed () then handle_char (read_key ());
             (*ignore (read_line ());*)
             ref_r := r'
             end
@@ -358,6 +380,8 @@ module FreeFall (F : Frame) =
         in
         Flux.map2 (fun posvit bon -> (posvit, blocs, statut, paramVariables, bon)) (newBalles balles) (newBonus bonusTombants)
   end
+
+
 
 module Bouncing (F : Frame) =
   struct
@@ -436,12 +460,22 @@ module Bouncing (F : Frame) =
 
     let rebond_balle ((x, y), (dx, dy), blocs, (score,vies), (long_raq, inv_controles), bonusTombants) =
       
-      let pivote (vx, vy) theta =
-        (vx *. cos theta +. vy *. sin theta,
-        -.vx *. sin theta +. vy *. cos theta)
+      let norme vx vy =
+        sqrt ((vx ** 2.) +. (vy ** 2.))
       in
 
-      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
+      let sign x = if x < 0. then -.1. else if x > 0. then 1. else 0. in
+
+      let pivote (vx, vy) theta =
+        let (new_vx, new_vy) = (vx *. cos theta +. vy *. sin theta,
+        -.vx *. sin theta +. vy *. cos theta) in
+        let n = norme new_vx new_vy in 
+        let a = 3.1415/.8. in
+          if (abs_float new_vx) /. n > cos a then (sign new_vx *. n *. cos a, sign vy *. n *. abs_float (sin a))
+          else (new_vx, new_vy)
+      in
+
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) inv_controles in
         
       let new_dx = (if contact_x F.box_x blocs x y dx then -. dx *. acceleration else dx) in
       let new_dy = (if (contact_y F.box_y blocs x y dy) || (contact_raq xraq x (yb y) dy long_raq) then -. dy *. acceleration else dy) in
@@ -453,8 +487,10 @@ module Bouncing (F : Frame) =
             if (contact_bloc (bords_solo t) x y dx dy) then 
               (let (px, py, pui) = t in 
                 if(pui = 1) then 
-                  let rand = 1 in
-                    if rand = 1 then let typeBon = (List.hd listeBonus) in 
+                  let rand = Random.float 1. in
+                    if rand < Init.alea then 
+                      let indBon = Random.int (List.length listeBonus) in 
+                      let typeBon = (List.nth listeBonus indBon) in 
                       (fst q, (x, y, vitBon, typeBon)::(snd q))
                     else q
                 else ((px, py, pui - 1)::(fst q), (snd q)))
@@ -479,6 +515,7 @@ module Bouncing (F : Frame) =
             | 1 -> (b, bl, s, (long_raq +. Bonus.plusLong, inv_contr))
             | 2 -> (b, bl, s, (long_raq -. Bonus.moinsLong, inv_contr))
             | 3 -> (((xb,yb),(-.dx,dy))::b, bl, s, (long_raq, inv_contr))
+            | 4 -> (b, bl, s, (long_raq, not inv_contr))
             | _ -> (b, bl, s, (long_raq, inv_contr))
           else (b, bl, s, (long_raq, inv_contr))
       in
@@ -489,7 +526,7 @@ module Bouncing (F : Frame) =
 
 
     let rebond (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) =
-      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) inv_controles in
       let rec rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonus) = 
         let addBalle (ba, bl, s, v, bon) b =
           (b::ba, bl, s, v, bon)
@@ -497,14 +534,16 @@ module Bouncing (F : Frame) =
           match balles with
           | [] -> ([], blocs, (score, vies), (long_raq, inv_controles), bonus)
           | (pos, vit)::q -> 
-            if (yb (snd pos)) < 0. then rebondRec (q, blocs, (score,vies), Init.paramVariables, Init.bonusInit)
+            if (yb (snd pos)) < 0. then rebondRec (q, blocs, (score,vies),  (long_raq, inv_controles), bonus)
             else
-              let (pos2, vit2, newBlocs, newScore, (new_long_raq, new_inv_controles), new_bonus ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raq, inv_controles), bonusTombants) in
+              let (pos2, vit2, newBlocs, newScore, (new_long_raq, new_inv_controles), new_bonus ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raq, inv_controles), bonus) in
                 addBalle (rebondRec (q, newBlocs, (newScore,vies), (new_long_raq, new_inv_controles), new_bonus)) (pos2, vit2)
       in
         let (b, bl, s, v, bon) = rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) in
         match b with
-        | [] -> (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
+        | [] -> if (snd s - 1) != 0  
+                  then (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
+                  else ([], bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
         | _ -> appliquer_bonus_touches (b, bl, s, v, bon) xraq
 
 
@@ -513,8 +552,8 @@ module Bouncing (F : Frame) =
       
 
     let rec contact (balles, blocs, statut, paramVariables, bonusTombants) = 
-      let (long_raq, _) = paramVariables in 
-      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) in
+      let (long_raq, inv_contr) = paramVariables in 
+      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) inv_contr in
       match balles with
       | [] -> false
       | ((x,y), (dx,dy))::q -> 
@@ -535,10 +574,7 @@ module Draw = Drawing (Init)
 module Bounce = Bouncing (Init)
 
 let _  =
-  (* TODO : Elargissement raquette *)
-  (* TODO : Rétrécissement raquette *)
-  (* TODO : Inversion contrôles *)
-  (* TODO : Bonus tombant *)
+  Random.init 7364;
   Draw.draw (Bounce.run (Init.reset Init.statut));;
 
 
