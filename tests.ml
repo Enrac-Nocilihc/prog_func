@@ -717,30 +717,28 @@ module Drawing (F : Frame) =
             let draw_raquette raq =
              Raquette.(
               set_color (couleur raq);
-              let xsouris = (fst (mouse_pos ())) in
-              let x = getXRaq raq xsouris in
-                fill_rect (xg raq - rx raq) (yb raq) (long raq) (haut raq);
+              fill_rect (intv (xg raq -- rx raq)) (intv (yb raq)) (intv (long raq)) (intv (haut raq));
              ) 
             in
 
             let draw_balle balle =
               Balle.(
                 set_color (couleur balle);
-                draw_circle (xc balle) (yc balle) (rx balle);
+                draw_circle (intv (xc balle)) (intv (yc balle)) (intv(rx balle));
               )
             in
 
             let draw_bonus bonus =
               Bonus.(
                 set_color (couleur bonus);
-                draw_circle (xc bonus) (xc bonus) (rx bonus);
+                draw_circle (intv(xc bonus)) (intv(xc bonus)) (intv(rx bonus));
               )
             in
 
             let draw_bloc bloc =
               Bloc.(
                 set_color (couleur bloc);              
-                fill_rect (xg bloc) (yb bloc) (long bloc) (haut bloc)
+                fill_rect (intv(xg bloc)) (intv(yb bloc)) (intv(long bloc)) (intv(haut bloc))
               )
             in
 
@@ -754,7 +752,7 @@ module Drawing (F : Frame) =
 
             let draw_vies vies couleur =
               
-              moveto (long_ecran - 150) 20;
+              moveto (intv long_ecran - 150) 20;
               set_color couleur;
               set_font "-*-fixed-medium-r-semicondensed--25-*-*-*-*-*-iso8859-1";
               draw_string "Vies : ";
@@ -765,14 +763,14 @@ module Drawing (F : Frame) =
               (* Background *)
               set_color black;
               moveto 0 0;
-              fill_rect 0 0 (long_ecran) (haut_ecran);
+              fill_rect 0 0 (intv long_ecran) (intv haut_ecran);
               (* Texte Game over *)
-              moveto ((long_ecran / 10)) ((haut_ecran / 2));
+              moveto (intv (long_ecran /~. 10.)) (intv (haut_ecran /~. 2.));
               set_color white;
               set_font "-*-fixed-medium-r-semicondensed--150-*-*-*-*-*-iso8859-1";
               draw_string "Game Over";
               (* Texte ESC et vies/score*)
-              moveto (long_ecran / 3) (haut_ecran / 2);
+              moveto (intv (long_ecran /~. 3.)) (intv (long_ecran /~. 2.));
               set_font "-*-fixed-medium-r-semicondensed--20-*-*-*-*-*-iso8859-1";
               draw_string "Appuyez sur ESC pour sortir...";
               draw_score score white;
