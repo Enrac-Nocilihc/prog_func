@@ -8,56 +8,206 @@ Interfaces et modules des objets utilisés
 ------------------------------------------
 *)
 
-type null = Null
+(* Solides = Blocs / Balle / Raquette *)
+
+module type NombreItf =
+  sig
+
+  type nb
+
+  val operator2 : nb -> nb -> (int -> int -> 'a) -> (float -> float -> 'a) -> 'a
+  
+  (* Opérations *)
+
+  val ( /- ) : nb -> nb -> nb
+  val ( /~ ) : nb -> int -> nb
+  val ( /~. ) : nb -> float -> nb
+
+  val ( +- ) : nb -> nb -> nb
+  val ( +~ ) : nb -> int -> nb
+  val ( +~. ) : nb -> float -> nb
+
+  val ( -- ) : nb -> nb -> nb
+  val ( -~ ) : nb -> int -> nb
+  val ( -~. ) : nb -> float -> nb
+
+  val ( *- ) : nb -> nb -> nb
+  val ( *~ ) : nb -> int -> nb
+  val ( *~. ) : nb -> float -> nb
+
+  (* Comparaisons *)
+
+  val ( >> ) : nb -> nb -> bool
+  val ( >~ ) : nb -> int -> bool
+  val ( >~. ) : nb -> float -> bool
+  
+  val ( << ) : nb -> nb -> bool
+  val ( <~ ) : nb -> int -> bool
+  val ( <~. ) : nb -> float -> bool
+  
+  val ( >>= ) : nb -> nb -> bool
+  val ( >=~ ) : nb -> int -> bool
+  val ( >=~. ) : nb -> float -> bool
+  
+  val ( <<= ) : nb -> nb -> bool
+  val ( <=~ ) : nb -> int -> bool
+  val ( <=~. ) : nb -> float -> bool
+  
+
+  val ( ->> ) : nb -> int -> nb
+  val ( ->>. ) : nb -> float -> nb
+
+  val toInt : int -> nb
+  val toFloat : float -> nb
+
+  val intv : nb -> int
+  val floatv : nb -> float
+
+  end
+
+module Nombre : NombreItf =
+
+  struct
+
+  type nb = 
+    | Int of int
+    | Float of float
+
+  
+  let operatorInt a b opInt =
+    match a with
+    | Int x -> opInt x b
+    | Float x -> opInt (int_of_float x) b
+
+  let operatorFloat a b opFloat =
+    match a with
+    | Int x -> opFloat (float_of_int x) b
+    | Float x -> opFloat x b
+  
+  let operator2 a b opInt opFloat =
+    match (a, b) with
+    | (Int x, Int y) -> opInt x y
+    | (Int x, Float y) -> opFloat (float_of_int x) y
+    | (Float x, Float y) -> opFloat x y
+    | (Float x, Int y) ->  opFloat x (float_of_int y)
+
+  let ( /- ) a b = operator2 a b (fun a b -> Int(a / b)) (fun a b -> Float(a /. b))
+  let ( /~ ) a b = operatorInt a b (fun a b -> Int(a / b))
+  let ( /~. ) a b = operatorFloat a b (fun a b -> Float(a /. b))
+
+  let ( +- ) a b = operator2 a b (fun a b -> Int(a + b)) (fun a b -> Float(a +. b))
+  let ( +~ ) a b = operatorInt a b (fun a b -> Int(a + b))
+  let ( +~. ) a b = operatorFloat a b (fun a b -> Float(a +. b))
+
+  let ( -- ) a b = operator2 a b (fun a b -> Int(a - b)) (fun a b -> Float(a -. b))
+  let ( -~ ) a b = operatorInt a b (fun a b -> Int(a - b))
+  let ( -~. ) a b = operatorFloat a b (fun a b -> Float(a -. b))
+
+  let ( *- ) a b = operator2 a b (fun a b -> Int(a * b)) (fun a b -> Float(a *. b))
+  let ( *~ ) a b = operatorInt a b (fun a b -> Int(a * b))
+  let ( *~. ) a b = operatorFloat a b (fun a b -> Float(a *. b))
+
+  let ( >> ) a b = operator2 a b ( > ) ( > )
+  let ( >~ ) a b = operatorInt a b (fun a b -> a > b)
+  let ( >~. ) a b = operatorFloat a b (fun a b -> a > b)
+
+  let ( << ) a b = operator2 a b ( < ) ( < )
+  let ( <~ ) a b = operatorInt a b (fun a b -> a < b)
+  let ( <~. ) a b = operatorFloat a b (fun a b -> a < b)
+
+  let ( <<= ) a b = operator2 a b ( <= ) ( <= )
+  let ( <=~ ) a b = operatorInt a b (fun a b -> a <= b)
+  let ( <=~. ) a b = operatorFloat a b (fun a b -> a <= b)
+
+  let ( >>= ) a b = operator2 a b ( >= ) ( >= )
+  let ( >=~ ) a b = operatorInt a b (fun a b -> a >= b)
+  let ( >=~. ) a b = operatorFloat a b (fun a b -> a >= b)
+
+  let toInt a = Int(a)
+  let toFloat a = Float(a)
+
+  let intv a = 
+    match a with
+    | Int x -> x
+    | Float x -> int_of_float x
+
+  let floatv a = 
+    match a with
+    | Int x -> float_of_int x
+    | Float x -> x
+
+  (* Convertit b en même type que a *)
+  let (->>) a b = 
+    match a with
+    | Int x -> Int(b)
+    | Float x -> Float(float_of_int b)
+  
+  let (->>.) a b = 
+    match a with
+    | Int x -> Int(int_of_float b)
+    | Float x -> Float(b)
+
+  end
+
 
 (* Paramètres généraux *)
 module Parametres =
   struct
 
-    let long_ecran = 800
-    let haut_ecran = 600
+    include Nombre
+
+    let long_ecran = toInt 800
+    let haut_ecran = toInt 600
+
+    let zone_blocs = (
+      (long_ecran /~ 8, (long_ecran *~ 7) /~ 8), (* xmin, xmax *)
+      (haut_ecran /~ 2, (haut_ecran *~ 7) /~ 8)) (* ymin, ymax *)
 
   end
 
-(* Solides = Blocs / Balle / Raquette *)
+
 module type SolideItf =
   sig
 
-    type 'a t
+    include NombreItf
+
+    type ('a, 'b) t
 
     (* Construit un solide *)
-    val cons: (int * int) -> int -> int -> color -> 'a -> 'a t 
+    val cons: (nb * nb) -> nb -> nb -> color -> 'a -> ('a, nb) t 
 
     (* Getters et Setters *)
-    val long : _ t -> int
-    val setLong : 'a t -> int -> 'a t
-    val haut : _ t -> int
-    val couleur : _ t -> color
-    val setCouleur : 'a t -> color -> 'a t
-    val param : 'a t -> 'a
-    val setParam : 'a t -> 'a -> 'a t
+    val long : (_, nb) t -> nb
+    val setLong : ('a, nb) t -> nb -> ('a, nb) t
+    val haut : (_, nb) t -> nb
+    val couleur : (_, _) t -> color
+    val setCouleur : ('a, nb) t -> color -> ('a, nb) t
+    val param : ('a, _) t -> 'a
+    val setParam : ('a, nb) t -> 'a -> ('a, nb) t
 
     (* Rayon sur x et y (distance au centre)*)
-    val rx : _ t -> int
-    val ry : _ t -> int
+    val rx : (_, nb) t -> nb
+    val ry : (_, nb) t -> nb
 
     (* Coordonnées à différents niveaux *)
-    val xd : _ t -> int  (* x Droite *)
-    val xg : _ t -> int  (* x Gauche *)
-    val yh : _ t -> int  (* y Haut *)
-    val yb : _ t -> int  (* y Bas *)
-    val xc : _ t -> int 
-    val yc : _ t -> int
+    val xd : (_, nb) t -> nb  (* x Droite *)
+    val xg : (_, nb) t -> nb  (* x Gauche *)
+    val yh : (_, nb) t -> nb  (* y Haut *)
+    val yb : (_, nb) t -> nb  (* y Bas *)
+    val xc : (_, nb) t -> nb 
+    val yc : (_, nb) t -> nb
 
   end
 
-module Solide : SolideItf =
+module Solide : SolideItf with type nb = Nombre.nb =
   struct
 
+    include Nombre
     (* Position du coin inf gauche * hauteur * longueur * couleur * parametres propres *)
-    type 'a t = (int * int) * int * int * color * 'a
 
-    let cons pos l h color elt = (pos, l, h, color, elt)
+    type ('a, 'b) t = ('b * 'b) * 'b * 'b * color * 'a 
+
+    let cons (x,y) l h color elt = ((x,y), l, h, color, elt)
 
     let xg ((x,y), l, h, color, _) = x
     let yb ((x,y), l, h, color, _) = y
@@ -69,14 +219,14 @@ module Solide : SolideItf =
     let setParam (pos, l, h, color, elt) param = cons pos l h color param
     let setCouleur (pos, l, h, color, elt) newC = cons pos l h newC elt
     let setLong (pos, l, h, color, elt) longueur = cons pos longueur h color elt
+    
+    let rx s = (long s) /~ 2
+    let ry s = (haut s) /~. 2.
 
-    let rx s = (long s) / 2 
-    let ry s = (haut s) / 2 
-
-    let xc s = xg s + rx s
-    let yc s = yb s + ry s
-    let yh s = yb s + haut s
-    let xd s = xg s + long s
+    let xc s = xg s +- rx s
+    let yc s = yb s +- ry s
+    let yh s = yb s +- haut s
+    let xd s = xg s +- long s
 
     
   end
@@ -92,25 +242,25 @@ module type BlocItf =
     type tb
 
     (* Construit un bloc *)
-    val cons : (int * int) -> int -> int -> int -> tb t
+    val cons : (nb * nb) -> nb -> nb -> int -> (tb, nb) t
 
     (* Convertit la donnée de puissance en couleur *)
     val power_to_couleur : int -> color
 
     (* Diminue de 1 la puissance d'un bloc *)
-    val downgrade : tb t -> tb t
+    val downgrade : (tb, nb) t -> (tb, nb) t
 
     (* Génère une ligne de blocs d'une certaine puissance et d'une certaine taille *)
-    val genererLigne : int -> int -> int -> int -> int -> int -> tb t list
+    val genererLigne : nb -> nb -> nb -> int -> int -> nb -> (tb, nb) t list
 
     (* Génère une ligne de blocs d'une certaine puissance et d'une certaine taille *)
-    val genererNiveau : int -> tb t list
+    val genererNiveau : int -> (tb, nb) t list
 
     
 
   end
 
-module Bloc : BlocItf =
+module Bloc : BlocItf with type nb = Nombre.nb  =
   struct
 
     include Solide
@@ -142,28 +292,28 @@ module Bloc : BlocItf =
 
 
     let genererLigne y xmin xmax nbBlocs power h = 
-      let l = (xmax - xmin) / nbBlocs in
+      let l = (xmax -- xmin) /~ nbBlocs
+      in
         let rec ajouterBloc x nbBlocs power =
           let bloc = cons (x,y) l h power in
             if nbBlocs = 0 then []
             else if nbBlocs < 0 then raise (Failure "Oops !")
-            else bloc::(ajouterBloc (x + l) (nbBlocs - 1) power)
+            else bloc::(ajouterBloc (x +- l) (nbBlocs - 1) power)
         in 
         ajouterBloc xmin nbBlocs power 
     
     
     let genererNiveau n =
 
-      let (xmin, xmax) = (long_ecran/8, (long_ecran * 7)/8) in
-        let (ymin, ymax) = (haut_ecran/2, (haut_ecran * 7)/8) in
-          let nbLignes = fun_nb_lignes n in
-            let h = (ymax - ymin) / nbLignes in
-              let rec ajouterLigne y nbL =
-                if nbL = 0 then []
-                else let ligne = genererLigne y xmin xmax (fun_evo_lignes_nb n nbL) (fun_evo_lignes_pw n nbL) h in
-                ligne::(ajouterLigne (y - h) (nbL - 1))
-              in 
-                List.flatten (ajouterLigne ymax nbLignes)
+      let ((xmin, xmax), (ymin, ymax)) = zone_blocs in
+        let nbLignes = fun_nb_lignes n in
+          let h = (ymax -- ymin) /~ nbLignes in
+            let rec ajouterLigne y nbL =
+              if nbL = 0 then []
+              else let ligne = genererLigne y xmin xmax (fun_evo_lignes_nb n nbL) (fun_evo_lignes_pw n nbL) h in
+              ligne::(ajouterLigne (y -- h) (nbL - 1))
+            in 
+              List.flatten (ajouterLigne ymax nbLignes)
 
 
   end
@@ -177,14 +327,14 @@ module type RaquetteItf =
     include SolideItf
     type tr
 
-    val init : tr t
-    val sens : tr t -> bool
-    val changeSens : tr t -> tr t
-    val ajouterTaille : tr t -> int -> tr t
-    val getXRaq : tr t -> int -> int 
+    val init : (tr, nb) t
+    val sens : (tr, nb) t -> bool
+    val changeSens : (tr, nb) t -> (tr, nb) t
+    val ajouterTaille : (tr, nb) t -> int -> (tr, nb) t
+    val getXRaq : (tr, nb) t -> nb -> nb 
   end
 
-module Raquette : RaquetteItf =
+module Raquette : RaquetteItf with type nb = Nombre.nb =
   struct
 
     include Solide
@@ -192,23 +342,23 @@ module Raquette : RaquetteItf =
 
     type tr = bool
     
-    let haut_raq = 100
-    let long_raq = 100
-    let haut_raq = 20
+    let haut_raq = toInt 100
+    let long_raq = toInt 100
+    let y_raq = toInt 20
     let color_raq = red
 
-    let init = cons (long_ecran / 2, haut_raq) long_raq haut_raq color_raq true
+    let init = cons ((long_ecran /~ 2), y_raq) long_raq haut_raq color_raq true
     let sens raq = param raq
     let changeSens raq = setParam raq (not (param raq))
-    let ajouterTaille raq taille = setLong raq (long raq + taille)
+    let ajouterTaille raq taille = setLong raq (toInt(max 0 (intv (long raq) + taille)))
 
     let getXRaq raq xsouris =
       let new_xsouris =
-        if xsouris > long_ecran - rx raq then long_ecran - rx raq 
-        else if xsouris < rx raq         then rx raq
+        if xsouris > long_ecran -- rx raq then long_ecran -- rx raq
+        else if xsouris < rx raq          then rx raq
         else xsouris 
       in
-        if sens raq then new_xsouris else long_ecran - new_xsouris
+        if sens raq then new_xsouris else long_ecran -- new_xsouris
     
   end
 
@@ -221,42 +371,42 @@ module type BalleItf =
 
     type tba
 
-    val init : tba t
+    val init : (tba, nb) t
 
     (* Retourne true si la balle fournie en argument est en collision avec la raquette fournie en argument *)
-    val collision_raq : tba t -> Raquette.tr t -> bool
+    val collision_raq : (tba, nb) t -> (Raquette.tr, nb) t -> bool
 
     (* Retourne true si la balle fournie en argument est en collision 
     (sur l'axe précisé, si précisé) avec le(s) bloc(s) fourni(s) en argument *)
-    val collision_x_bloc : tba t -> Bloc.tb t -> bool
-    val collision_x_blocs : tba t -> Bloc.tb t list -> bool
-    val collision_y_bloc : tba t -> Bloc.tb t -> bool
-    val collision_y_blocs : tba t -> Bloc.tb t list -> bool
-    val collision_bloc : tba t -> Bloc.tb t -> bool
-    val collision_blocs : tba t -> Bloc.tb t list -> bool
-    val dupliquer : tba t list -> tba t list
+    val collision_x_bloc : (tba, nb) t -> (Bloc.tb, nb) t -> bool
+    val collision_x_blocs : (tba, nb) t -> (Bloc.tb, nb) t list -> bool
+    val collision_y_bloc : (tba, nb) t -> (Bloc.tb, nb) t -> bool
+    val collision_y_blocs : (tba, nb) t -> (Bloc.tb, nb) t list -> bool
+    val collision_bloc : (tba, nb) t -> (Bloc.tb, nb) t -> bool
+    val collision_blocs : (tba, nb) t -> (Bloc.tb, nb) t list -> bool
+    val dupliquer : (tba, nb) t list -> (tba, nb) t list
 
   end
 
-module Balle : BalleItf =
+module Balle : BalleItf with type nb = Nombre.nb =
   struct
 
     include Solide
 
     (* Représente la vitesse de la balle *)
-    type tba = float * float
+    type tba = nb * nb
 
-    let posInit = (120, 100)
-    let rayon = 5
-    let vitesseInit = (100., 100.)
+    let posInit = (toInt 120, toInt 100)
+    let diametre = toInt 10
+    let vitesseInit = (toFloat 100., toFloat 100.)
 
-    let init = cons posInit (2 * rayon) (2 * rayon) black  vitesseInit
+    let init = cons posInit diametre diametre black vitesseInit
 
     let vit balle = param balle
 
     let collision_raq balle raq = 
       let (dx, dy) = vit balle in
-        dy < 0. && 
+        dy << toFloat(0.) && 
         yh raq > yb balle && 
         yc raq < yb balle && 
         xg raq < xc balle && 
@@ -264,14 +414,14 @@ module Balle : BalleItf =
 
 
     let collision_x_bloc balle bloc = let (dx, dy) = vit balle in
-      yb balle < yh bloc && yh balle > yb bloc && (
-      (xd balle >= xg bloc && xd balle <= xc bloc && dx > 0.) || 
-      (xg balle <= xd bloc && xg balle >= xc bloc && dx < 0.) )
+      yb balle << yh bloc && yh balle >> yb bloc && (
+      (xd balle >>= xg bloc && xd balle <<= xc bloc && dx >~. 0.) || 
+      (xg balle <<= xd bloc && xg balle >>= xc bloc && dx <~. 0.) )
 
     let collision_y_bloc balle bloc = let (dx, dy) = vit balle in
-      xg balle < xd bloc && yh balle > xg bloc && (
-      (yh balle >= yb bloc && yh balle <= xc bloc && dy > 0.) || 
-      (yb balle <= yh bloc && yb balle >= xc bloc && dy < 0.) )
+      xg balle << xd bloc && yh balle >> xg bloc && (
+      (yh balle >>= yb bloc && yh balle <<= xc bloc && dy >~. 0.) || 
+      (yb balle <<= yh bloc && yb balle >>= xc bloc && dy <~. 0.) )
 
     let collision_bloc balle bloc = collision_x_bloc balle bloc || collision_y_bloc balle bloc 
 
@@ -285,10 +435,11 @@ module Balle : BalleItf =
     let dupliquer listeBalles = 
       let prem = List.hd listeBalles in
         let (vx, vy) = param prem in
-          (setParam prem (-.vx, vy))::listeBalles
+          (setParam prem (vx *~ (-1), vy))::listeBalles
 
     
   end
+
 
 
 
@@ -297,25 +448,27 @@ module type BonusItf =
   sig
 
     include SolideItf 
-
+        
     type bonusType
     type 'a tbo
-    
 
-    val fun_tailleRaquetteUp : Raquette.tr Raquette.t tbo * color
-    val fun_tailleRaquetteDown : Raquette.tr Raquette.t tbo * color
-    val fun_tailleRaquetteInv : Raquette.tr Raquette.t tbo * color
 
-    val fun_multiballes : Balle.tba Balle.t list tbo * color
+    val fun_tailleRaquetteUp : (Raquette.tr, nb) Raquette.t tbo * color
+    val fun_tailleRaquetteDown : (Raquette.tr, nb) Raquette.t tbo * color
+    val fun_tailleRaquetteInv : (Raquette.tr, nb) Raquette.t tbo * color
+
+    val fun_multiballes : (Balle.tba, Balle.nb) Balle.t list tbo * color
+
+    val fun_vieSupp : int tbo * color
     
     val listeBonus : bonusType list
 
-    val init : ('a tbo * color) -> int -> int -> 'a tbo t
+    val init : ('a tbo * color) -> nb -> nb -> ('a tbo, nb) t
     
   end
 
 
-module Bonus : BonusItf =
+module Bonus : BonusItf with type nb = Nombre.nb =
   struct
 
     include Solide
@@ -324,26 +477,29 @@ module Bonus : BonusItf =
 
     type 'a tbo = 'a -> 'a
     type bonusType = 
-      | BonusRaq of (int -> int -> Raquette.tr Raquette.t tbo t)
-      | BonusBal of (int -> int -> Balle.tba Balle.t list tbo t)
+      | BonusRaq of (nb -> nb -> ((Raquette.tr, nb) Raquette.t tbo, nb) t)
+      | BonusBal of (nb -> nb -> ((Balle.tba, nb) Balle.t list tbo, nb) t)
+      | BonusVie of (nb -> nb -> (int tbo, nb) t)
       
-    let vitesse = (0., -.100.)
-    let rayon = 10
+    let vitesse = (toFloat 0., toFloat (-.100.))
+    let rayon = toInt 10
 
     let fun_tailleRaquetteUp = ((fun raq -> Raquette.ajouterTaille raq 20), green)
     let fun_tailleRaquetteDown = ((fun raq -> Raquette.ajouterTaille raq (-20)), red) 
     let fun_tailleRaquetteInv = ((Raquette.changeSens), magenta)
+    let fun_vieSupp = ((fun vies -> vies + 1), red)
     
-    let fun_multiballes = ((fun listeBalles -> Balle.dupliquer listeBalles), magenta)
+    let fun_multiballes = ((fun listeBalles -> Balle.dupliquer listeBalles), black)
 
 
-    let init (func, coul) x y  = cons (x,y) (2 * rayon) (2 * rayon) coul func
+    let init (func, coul) x y  = cons (x,y) (rayon *~ 2) (rayon *~ 2) coul func
 
     let listeBonus = [
       BonusRaq(init fun_tailleRaquetteUp);
       BonusRaq(init fun_tailleRaquetteDown);
       BonusRaq(init fun_tailleRaquetteInv);
-      BonusBal(init fun_multiballes)
+      BonusBal(init fun_multiballes);
+      BonusVie(init fun_vieSupp)
     ]
 
   end
@@ -352,21 +508,23 @@ module Bonus : BonusItf =
 module type JeuItf =
   sig
   
+    include NombreItf
+
     type g
     type ('a, 'b) t
   
-    val cons : Balle.tba Balle.t list -> Bloc.tb Bloc.t list -> 'b Bonus.tbo Bonus.t list -> Raquette.tr Raquette.t -> g -> (g, 'b) t
+    val cons : (Balle.tba, nb) Balle.t list -> (Bloc.tb, nb) Bloc.t list -> ('b Bonus.tbo, nb) Bonus.t list -> (Raquette.tr, nb) Raquette.t -> g -> (g, 'b) t
     
-    val balles : (g, 'b)t -> Balle.tba Balle.t list
-    val blocs : (g, 'b) t -> Bloc.tb Bloc.t list
-    val bonus : (g, 'b) t -> 'b Bonus.tbo Bonus.t list
-    val raquette : (g, 'b) t -> Raquette.tr Raquette.t
+    val balles : (g, 'b)t -> (Balle.tba, nb) Balle.t list
+    val blocs : (g, 'b) t -> (Bloc.tb, nb) Bloc.t list
+    val bonus : (g, 'b) t -> ('b Bonus.tbo, nb) Bonus.t list
+    val raquette : (g, 'b) t -> (Raquette.tr, nb) Raquette.t
     val param : (g, 'b) t -> g
     
-    val ajouterBalle : (g, 'b) t -> Balle.tba Balle.t -> (g, 'b) t
-    val ajouterBloc : (g, 'b) t -> Bloc.tb Bloc.t -> (g, 'b) t
-    val ajouterBonus : (g, 'b) t -> 'b Bonus.tbo Bonus.t -> (g, 'b) t
-    val remplRaquette : (g, 'b) t -> Raquette.tr Raquette.t -> (g, 'b) t
+    val ajouterBalle : (g, 'b) t -> (Balle.tba, nb) Balle.t -> (g, 'b) t
+    val ajouterBloc : (g, 'b) t -> (Bloc.tb, nb) Bloc.t -> (g, 'b) t
+    val ajouterBonus : (g, 'b) t -> ('b Bonus.tbo, nb) Bonus.t -> (g, 'b) t
+    val remplRaquette : (g, 'b) t -> (Raquette.tr, nb) Raquette.t -> (g, 'b) t
     
     
     val score : (g, 'b) t -> int
@@ -381,17 +539,18 @@ module type JeuItf =
   
   end
 
-module Jeu : JeuItf =
+module Jeu : JeuItf with type nb = Nombre.nb =
   struct
+
+    include Nombre
+
+    (* Balles / Blocs / Bonus Tombants / Paramètres généraux*)
+    type ('a, 'b) t = (Balle.tba, nb) Balle.t list * (Bloc.tb, nb) Bloc.t list * ('b Bonus.tbo, nb) Bonus.t list * (Raquette.tr, nb) Raquette.t * 'a
+    (* Type des paramètres généraux du jeu : Score / Vies / Niveau en cours *)
+    type g = int * int * int
 
     let viesInit = 3
     let lvlInit = 1
-
-    (* Type des paramètres généraux du jeu :
-    Score / Vies / Niveau en cours *)
-    type g = int * int * int
-    (* Balles / Blocs / Bonus Tombants / Paramètres généraux*)
-    type ('a, 'b) t = Balle.tba Balle.t list * Bloc.tb Bloc.t list * 'b Bonus.tbo Bonus.t list * Raquette.tr Raquette.t * 'a
 
     let cons balles blocs bonus raquette param = (balles, blocs, bonus, raquette, param)
 
