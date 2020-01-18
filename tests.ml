@@ -1,6 +1,19 @@
 open Graphics
 
-(* TODO : Continuer FreeFall *)
+(* 
+
+Petite note à propos des include (particulièrement pour Paramètres et Nombre) :
+
+Cette manière de faire n'est peut être pas la façon la plus propre de
+gérer les modules, et l'utilisation de foncteurs aurait peut être été 
+plus judicieuse, mais ce type de notation permet une écriture plus
+compacte et lisible. Le projet n'ayant pas une envergure colossale, 
+nous avons fait ce choix.
+
+En revanche, nous jugeons les includes de Solide ont bien plus de sens ici.
+
+*)
+
 
 (* 
 ------------------------------------------
@@ -14,11 +27,11 @@ module type NombreItf =
   sig
 
   type nb
-
-  val operator2 : nb -> nb -> (int -> int -> 'a) -> (float -> float -> 'a) -> 'a
   
   (* Opérations *)
-
+  (* ...- : Opération entre nb *)
+  (* ...~ : Opération entre nb et entier *)
+  (* ...~ : Opération entre nb et flottant *)
   val ( /- ) : nb -> nb -> nb
   val ( /~ ) : nb -> int -> nb
   val ( /~. ) : nb -> float -> nb
@@ -54,12 +67,15 @@ module type NombreItf =
   val ( <=~. ) : nb -> float -> bool
   
 
+  (* Affectation de type *)
   val ( ->> ) : nb -> int -> nb
   val ( ->>. ) : nb -> float -> nb
 
+  (* Transformation de int/float à nb *)
   val toInt : int -> nb
   val toFloat : float -> nb
 
+  (* Transformation de nb à int/float *)
   val intv : nb -> int
   val floatv : nb -> float
 
@@ -154,14 +170,12 @@ module Nombre : NombreItf =
 module Parametres =
   struct
 
-    include Nombre
-
-    let long_ecran = toInt 800
-    let haut_ecran = toInt 600
-
-    let zone_blocs = (
+    let long_ecran = Nombre.(toInt 800)
+    let haut_ecran = Nombre.(toInt 600)
+    let zone_blocs = Nombre.((
       (long_ecran /~ 8, (long_ecran *~ 7) /~ 8), (* xmin, xmax *)
       (haut_ecran /~ 2, (haut_ecran *~ 7) /~ 8)) (* ymin, ymax *)
+    )
 
   end
 
@@ -260,6 +274,15 @@ module type BlocItf =
     (* Convertit la donnée de puissance en couleur *)
     val power_to_couleur : int -> color
 
+    (* Score de base d'un bloc pouvant être détruit en un coup. (En considérant vie = 1)*)
+    val scoreBase : int
+
+    (* Nombre de coups nécessaires avant de détruire le bloc. Ce nombre est négatif s'il est invulnérable. *)
+    val power : (tb, nb) t -> int
+
+    (* Score du bloc fourni en argument à la destruction *)
+    val score : (tb, nb) t -> int
+
     (* Diminue de 1 la puissance d'un bloc *)
     val downgrade : (tb, nb) t -> (tb, nb) t
 
@@ -279,14 +302,12 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
     include Solide
     include Parametres
 
-    (* Représente la puissance du bloc *)
+    (* Représente la puissance du bloc / Score à la destruction *)
     type tb = int * int
-
 
     let fun_evo_lignes_nb = fun niveau hauteur -> (5 + 2 * (niveau + hauteur))
     let fun_evo_lignes_pw = fun niveau hauteur -> (niveau + niveau * hauteur)
     let fun_nb_lignes = fun niveau -> niveau + 5
-
 
     let power_to_couleur power = 
       if(power <= -1) then black
@@ -294,17 +315,16 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
       else if power = 2 then blue
       else if power = 3 then magenta
       else if power = 4 then red
-      else if power >= 5 then black
+      else if power >= 5 then yellow
       else white
-
 
     let scoreBase = 20
 
     let calcScore power = (power * scoreBase)
+
     let cons (x,y) long haut power = Solide.cons (x,y) long haut (power_to_couleur power) (power, (calcScore power))
     
     let power bloc = fst (param bloc)
-    
 
     let score bloc = snd (param bloc)
 
@@ -413,6 +433,8 @@ module type BalleItf =
     val dx : (tba, nb) t -> nb
     val dy : (tba, nb) t -> nb
 
+    val pivote : (tba, nb) t -> float -> (tba, nb) t
+
   end
 
 module Balle : BalleItf with type nb = Nombre.nb =
@@ -467,6 +489,22 @@ module Balle : BalleItf with type nb = Nombre.nb =
     
     let dx balle = fst (vit balle)
     let dy balle = snd (vit balle)
+
+    let pivote balle theta =
+
+      setVit balle (let (vx, vy) = vit balle in
+
+      let norme vx vy = sqrt ((vx ** 2.) +. (vy ** 2.)) in
+      let sign x = if x < 0. then -.1. else if x > 0. then 1. else 0. in
+
+      let (new_vx, new_vy) = (vx *~. cos theta +- vy *~. sin theta,
+      vx *~. -. sin theta +- vy *~. cos theta) in
+      let n = norme (floatv new_vx) (floatv new_vy) in 
+      let a = 3.1415/.8. in
+        if (abs_float(floatv new_vx)) /. n > cos a then 
+          (toFloat (sign (floatv new_vx) *. n *. cos a), 
+           toFloat (sign (floatv vy) *. n *. abs_float (sin a)))
+        else (new_vx, new_vy))
     
   end
 
@@ -477,8 +515,11 @@ module type BonusItf =
 
     include SolideItf 
         
-    type 'a evo
-    type bonusType
+    type 'a evo = 'a -> 'a
+    type bonusType = 
+      | BonusRaq of (Raquette.tr, nb) Raquette.t evo
+      | BonusBal of (Balle.tba, nb) Balle.t list evo
+      | BonusVie of int evo
     type tbo
 
 
@@ -487,14 +528,14 @@ module type BonusItf =
     val tailleRaquetteInv : bonusType
     val multiballes : bonusType
     val vieSupp : bonusType
-    val init : (bonusType * color) -> (nb * nb) -> (nb * nb) -> (tbo, nb) t
+    val init : (bonusType * color * float) -> (nb * nb) -> (nb * nb) -> (tbo, nb) t
     val vit : (tbo, nb) t -> (nb * nb)
     val setVit : (tbo, nb) t -> (nb * nb) -> (tbo, nb) t
-    
-    (* val listeBonus : ((nb * nb) -> (nb * nb) -> bonusType) list
-
-
-     *)
+    val genererAlea : (Bloc.tb, nb) Bloc.t -> (tbo, nb) t option
+    val listeBonus : (bonusType * color * float) list
+    val collisionRaquette : (tbo, nb) t -> (Raquette.tr, nb) Raquette.t -> bool
+    val collisionsRaquette : (tbo, nb) t list -> (Raquette.tr, nb) Raquette.t -> bool
+    val func : (tbo, nb) t -> bonusType
     
   end
 
@@ -512,7 +553,9 @@ module Bonus : BonusItf with type nb = Nombre.nb =
       | BonusRaq of (Raquette.tr, nb) Raquette.t evo
       | BonusBal of (Balle.tba, nb) Balle.t list evo
       | BonusVie of int evo
-    type tbo = bonusType * (nb * nb)
+    
+    (* Type de bonus / Vitesse / Probabilité relative *)
+    type tbo = bonusType * (nb * nb) * float
 
     (* Bonus disponibles *)
     let tailleRaquetteUp = BonusRaq(fun raq -> Raquette.ajouterTaille raq 20)
@@ -523,19 +566,48 @@ module Bonus : BonusItf with type nb = Nombre.nb =
 
     let vitesseInit = (toFloat 0., toFloat (-.100.))
     let rayon = toInt 10
+    let probaApparition = 0.3
 
-    let init (func,color) pos vit = cons pos (rayon *~ 2) (rayon *~ 2) color (func, vit)
+    let init (func, color, probaRel) pos vit = cons pos (rayon *~ 2) (rayon *~ 2) color (func, vit, probaRel)
     
     let listeBonus = [
-      init (tailleRaquetteUp, green);
-      init (tailleRaquetteDown, green);
-      init (tailleRaquetteInv, green);
-      init (vieSupp, green);
-      init (multiballes, green);
+      (tailleRaquetteUp, green, 2.);
+      (tailleRaquetteDown, green, 3.);
+      (tailleRaquetteInv, green, 5.);
+      (vieSupp, green, 1.);
+      (multiballes, green, 1.);
     ]
 
-    let vit bonus = let (f, v) = param bonus in v
-    let setVit bonus newV = let (f, v) = (fst (param bonus), newV) in setParam bonus (f, v)
+    let poidsProbas = List.fold_right (fun t qt -> let (_, _, p) = t in p +. qt) listeBonus 0.
+    let proba bonus = let (f, v, p) = param bonus in p /. poidsProbas
+    
+
+    let vit bonus = let (f, v, _) = param bonus in v
+    let setVit bonus newV = let (f, v, p) = param bonus in setParam bonus (f, newV, p)
+
+    let genererAlea bloc = 
+        if Random.float 1. < probaApparition 
+        then let randBon = Random.float 1. in
+          Some(List.hd (List.rev (snd (List.fold_right (
+            fun t (pcalc, liste) -> 
+              let b = init t Bloc.((xc bloc, yc bloc)) vitesseInit in
+              let p = pcalc +. proba b in 
+                if p <= randBon then (p, liste)
+                else (p, b::liste)
+            ) listeBonus (0., []))))) 
+        else None
+    
+    let collisionRaquette bonus raq =
+      Raquette.yh raq > yb bonus &&
+      Raquette.yb raq < yh bonus && 
+      Raquette.xg raq < xc bonus && 
+      Raquette.xd raq > xc bonus
+
+    let collisionsRaquette listeBonus raq =
+      List.fold_right (fun t qt -> qt || collisionRaquette t raq) listeBonus false
+
+    let func bonus = let (f, v, p) = param bonus in f
+    
 
   end
 
@@ -555,6 +627,7 @@ module type JeuItf =
     val bonus : (g, 'b) t ->  (Bonus.tbo, nb) Bonus.t list
     val raquette : (g, 'b) t -> (Raquette.tr, nb) Raquette.t
     val param : (g, 'b) t -> g
+
     
     val ajouterBalle : (g, 'b) t -> (Balle.tba, nb) Balle.t -> (g, 'b) t
     val ajouterBloc : (g, 'b) t -> (Bloc.tb, nb) Bloc.t -> (g, 'b) t
@@ -564,11 +637,16 @@ module type JeuItf =
     val remplBalles : (g, 'b) t -> (Balle.tba, nb) Balle.t list -> (g, 'b) t
     val remplBonus : (g, 'b) t -> (Bonus.tbo, nb) Bonus.t  list -> (g, 'b) t
     val remplMobiles : (g, 'b) t -> (Balle.tba, nb) Balle.t list -> (Bonus.tbo, nb) Bonus.t list -> (Raquette.tr, nb) Raquette.t -> (g, 'b) t
+    val remplBlocs : (g, 'b) t -> (Bloc.tb, nb) Bloc.t list -> (g, 'b) t
     
-    val score : (g, 'b) t -> int
-    val vies : (g, 'b) t -> int
-    val niveau : (g, 'b) t -> int
+    val score : (g, 'b) t -> int  
+    val vies : (g, 'b) t -> int 
+    val niveau : (g, 'b) t -> int 
     
+    val setScore : (g, 'b) t -> int -> (g, 'b) t 
+    val setVies : (g, 'b) t -> int -> (g, 'b) t 
+    val perdreVie : (g, 'b) t -> (g, 'b) t 
+
     val init : (g, 'b) t
     
     val niveauTermine : (g, 'b) t -> bool
@@ -577,6 +655,8 @@ module type JeuItf =
     val collision_x : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
     val collision_y : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
 
+    val appliquerBonusTouches : (g, 'b) t -> (g, 'b) t 
+    val contact : (nb * nb) -> (nb * nb) -> (g, 'b) t -> bool
   
   end
 
@@ -603,16 +683,20 @@ module Jeu : JeuItf with type nb = Nombre.nb =
     let score jeu = let (s, v, n) = param jeu in s
     let vies jeu = let (s, v, n) = param jeu in v
     let niveau jeu = let (s, v, n) = param jeu in n
-    
+
+
     let remplBalles jeu b = 
       cons b (blocs jeu) (bonus jeu) (raquette jeu) (param jeu)
     let remplBonus jeu b = 
       cons (balles jeu) (blocs jeu) b (raquette jeu) (param jeu)
     let remplRaquette jeu r = 
       cons (balles jeu) (blocs jeu) (bonus jeu) r (param jeu)
+    let remplParam jeu p = 
+      cons (balles jeu) (blocs jeu) (bonus jeu) (raquette jeu) p
     let remplMobiles jeu balles bonus raquette = 
       remplBalles (remplBonus (remplRaquette jeu raquette) bonus) balles
-
+    let remplBlocs jeu b = 
+      cons (balles jeu) b (bonus jeu) (raquette jeu) (param jeu)
     let ajouterBalle jeu b = 
       cons (b::(balles jeu)) (blocs jeu) (bonus jeu) (raquette jeu) (param jeu)
     let ajouterBloc jeu b = 
@@ -620,10 +704,14 @@ module Jeu : JeuItf with type nb = Nombre.nb =
     let ajouterBonus jeu b = 
       cons (balles jeu) (blocs jeu) (b::(bonus jeu)) (raquette jeu) (param jeu)
 
+    let setScore jeu sc = let (s, v, n) = param jeu in remplParam jeu (sc, v, n)
+    let setVies jeu vies = let (s, v, n) = param jeu in  remplParam jeu (s, vies, n)
+    let perdreVie jeu = let jeuEvo = setVies jeu (vies jeu - 1) in
+      if vies jeu = 0 then remplBalles jeuEvo [] else jeuEvo
 
     let init = ajouterBalle (cons [] (Bloc.genererNiveau 1) [] Raquette.init (0, viesInit, 1)) Balle.init
     
-    let niveauTermine jeu = List.length (blocs jeu) = 0
+    let niveauTermine jeu = List.fold_right(fun t qt -> Bloc.power t < 0 && qt) (blocs jeu) true
     let passerNiveau jeu = 
       let params = (score jeu, vies jeu, 1 + niveau jeu) in
       let niveau = Bloc.genererNiveau (1 + niveau jeu) in
@@ -639,6 +727,28 @@ module Jeu : JeuItf with type nb = Nombre.nb =
       (Balle.yh balle >>= supy && Balle.dy balle >~. 0.) ||
       Balle.collision_y_blocs balle (blocs jeu) ||
       Balle.collision_raq balle (raquette jeu) 
+    
+    let collisionQlq jeu balle (xmin, xmax) (ymin, ymax) =
+      collision_x jeu balle xmin xmax || 
+      collision_y jeu balle ymin ymax ||
+      Bonus.collisionsRaquette (bonus jeu) (raquette jeu)
+
+    let appliquerBonusTouches jeu =
+
+        let appliquer jeu bonus =
+          let func = Bonus.func bonus in
+          match func with
+          | BonusRaq f -> remplRaquette jeu (f (raquette jeu))
+          | BonusVie f -> setVies jeu (f (vies jeu))
+          | BonusBal f -> remplBalles jeu (f (balles jeu)) 
+        in
+        List.fold_right (fun t qt -> if Bonus.collisionRaquette t (raquette jeu) then appliquer jeu t else jeu) (bonus jeu) jeu 
+  
+
+    let contact limx limy jeu =
+      List.fold_right(fun t qt -> collisionQlq jeu t limx limy || qt) (balles jeu) false
+
+
   end
 
 
@@ -734,10 +844,10 @@ module Init : Frame =
 
     include Parametres
     
-    let dt = toFloat 0.01
-    let xmin = toFloat 0.
+    let dt = Nombre.toFloat 0.01
+    let xmin = Nombre.toFloat 0.
     let xmax = long_ecran
-    let ymin = toFloat 0.
+    let ymin = Nombre.toFloat 0.
     let ymax = haut_ecran
     let box_x = (xmin, xmax)
     let box_y = (ymin, ymax)
@@ -757,7 +867,7 @@ module Drawing (F : Frame) =
 
   include Parametres
 
-  let draw r =
+  let draw r = Nombre.(
 
     let ref_r = ref r in
     let ref_handler_alrm = ref Sys.(Signal_handle (fun _ -> ())) in
@@ -883,6 +993,7 @@ module Drawing (F : Frame) =
       Sys.(ref_handler_int  := signal sigint  (Signal_handle handler_int));
       Unix.(setitimer ITIMER_REAL { it_interval = floatv F.dt; it_value = floatv F.dt })
     end    
+  )
   end
 
 module type Params =
@@ -914,23 +1025,23 @@ module Mouvement (F : Frame) =
 
     let run jeu =
 
-      let rec newBalles listeBalles =
+      let rec newBalles listeB =
         Balle.(List.fold_right (fun balle qt -> 
           let (pos0, vit0) = (xyc balle, vit balle) in
             let vit1 = Flux.constant vit0 in
             let pos1 = Flux.(map2 ( |+| ) (constant pos0) (integre (F.dt) vit1)) in
               let fluxCouples = (Flux.map2 (fun p v -> (p, v)) pos1 vit1) in
                 Flux.map2 (fun (pos1, vit1) l -> (setVit (setPosC balle pos1) vit1)::l) fluxCouples qt
-        ) listeBalles (Flux.constant ([])))
+        ) listeB (Flux.constant ([])))
 
-      in let rec newBonus listeBonus =
+      in let rec newBonus listeB =
         Bonus.(List.fold_right (fun bonus qt -> 
         let (pos0, vit0) = (xyc bonus, vit bonus) in
           let vit1 = Flux.constant vit0 in
           let pos1 = Flux.(map2 ( |+| ) (constant pos0) (integre (F.dt) vit1)) in
             let fluxCouples = (Flux.map2 (fun p v -> (p, v)) pos1 vit1) in
               Flux.map2 (fun (pos1, vit1) l -> (setVit (setPosC bonus pos1) vit1)::l) fluxCouples qt
-        ) listeBonus (Flux.constant ([])))
+        ) listeB (Flux.constant ([])))
       in
       let balles = Jeu.balles jeu in let bonus = Jeu.bonus jeu in
       let x = fst (Graphics.mouse_pos ()) in 
@@ -965,128 +1076,47 @@ module Bouncing (F : Frame) =
         ))
     
     
-    (* Méthodes mathématiques *)
-    let norme vx vy =
-      sqrt ((vx ** 2.) +. (vy ** 2.))
-
-    let sign x = if x < 0. then -.1. else if x > 0. then 1. else 0.
-
-
-    let pivote (vx, vy) theta =
-      let (new_vx, new_vy) = (vx *~. cos theta +- vy *~. sin theta,
-      vx *~. -. sin theta +- vy *~. cos theta) in
-      let n = norme (floatv new_vx) (floatv new_vy) in 
-      let a = 3.1415/.8. in
-        if (abs_float(floatv new_vx)) /. n > cos a then 
-          (toFloat (sign (floatv new_vx) *. n *. cos a), 
-           toFloat (sign (floatv vy) *. n *. abs_float (sin a)))
-        else (new_vx, new_vy)
-    
-    
     let balleBounce jeu balle =
       Balle.(
       let new_dx = (if Jeu.collision_x jeu balle F.xmin F.xmax then dx balle *~ (-1) *- acceleration else dx balle) in
-      let new_dy = (if Jeu.collision_y jeu balle F.xmin F.xmax then dx balle *~ (-1) *- acceleration else dx balle) in
+      let new_dy = (if Jeu.collision_y jeu balle F.ymin F.ymax then dy balle *~ (-1) *- acceleration else dy balle) in
         let raq = Jeu.raquette jeu in
         let dist_centre = xc balle -- Raquette.xc raq in
         let ratio_centre = (dist_centre /- (Raquette.long raq)) in
         let thetaAjoute = (if (collision_raq balle (Jeu.raquette jeu)) then floatv ratio_centre *. (3.1415 /. 4.) else 0.) in
-        setVit balle (pivote (new_dx, new_dy) thetaAjoute)
+        (pivote (setVit balle (new_dx, new_dy)) thetaAjoute)
       )
     
-    let scoreBounce jeu balle scoreInit =
+    let blocsBounce jeu balle =
       let blocs = Jeu.blocs jeu in 
-        List.fold_right (fun t qt -> if(Balle.collision_bloc balle t && Bloc.power bloc = 1) then (Bloc.score bloc) + qt else qt ) blocs scoreInit
-        
+        List.fold_right (fun t (morts, vivants) -> if(Balle.collision_bloc balle t && Bloc.power t = 1) then (t::morts, vivants) else (morts, (Bloc.downgrade t)::vivants) ) blocs ([], [])
+
 
     let rebond_balle jeu balle =
 
       let balleSuiv = balleBounce jeu balle in
-      let newScore = scoreBounce jeu balle scoreInit in
-        let (new_blocs, new_bonus) = List.fold_right (fun t q ->
-            if (contact_bloc (bords_solo t) x y dx dy) then 
-              (let (px, py, pui) = t in 
-                if(pui = 1) then 
-                  let rand = Random.float 1. in
-                    if rand < Init.alea then 
-                      let indBon = Random.int (List.length listeBonus) in 
-                      let typeBon = (List.nth listeBonus indBon) in 
-                      (fst q, (x, y, vitBon, typeBon)::(snd q))
-                    else q
-                else ((px, py, pui - 1)::(fst q), (snd q)))
-            else (t::(fst q), snd q) ) blocs ([], bonusTombants)
-        in
-          ((x, y), pivote (new_dx, new_dy) thetaAjoute, new_blocs, newScore, (long_raq, inv_controles), new_bonus ) (* TODO : Longueur et inversion *)
+      let (blocsMorts, blocsRestants) = blocsBounce jeu balle in
+      let newScore = List.fold_right (fun t qt -> Bloc.score t + qt) blocsMorts (Jeu.score jeu) in
+      let newBonus = List.fold_right (fun t qt -> match Bonus.genererAlea t with | None -> qt | Some b -> b::qt) blocsMorts (Jeu.bonus jeu) in
+      let newJeu = Jeu.remplBlocs (Jeu.setScore (Jeu.remplBonus jeu newBonus) newScore) blocsRestants in
+      (newJeu, balleSuiv)
 
-
-    let contact_un_bonus xraq (x, y, _, _) long_raq =
-      float_of_int yraq +. hraq > ybB y && 
-      float_of_int yraq < yhB y && 
-      float_of_int xraq -. long_raq /. 2. < x && 
-      float_of_int xraq +. long_raq /. 2. > x
-
-    let appliquer_bonus_touches (b, bl, s, v, bon) xraq=
-
-      let appliquer_bonus (b, bl, s, (long_raq, inv_contr)) xraq bonus =
-        let ((xb,yb),(dx,dy)) = List.hd b in 
-        let (x,y,_,(_, typeBon)) = bonus in
-          if contact_un_bonus xraq bonus long_raq then
-            match typeBon with
-            | 1 -> (b, bl, s, (long_raq +. Bonus.plusLong, inv_contr))
-            | 2 -> (b, bl, s, (long_raq -. Bonus.moinsLong, inv_contr))
-            | 3 -> (((xb,yb),(-.dx,dy))::b, bl, s, (long_raq, inv_contr))
-            | 4 -> (b, bl, s, (long_raq, not inv_contr))
-            | _ -> (b, bl, s, (long_raq, inv_contr))
-          else (b, bl, s, (long_raq, inv_contr))
-      in
-      List.fold_right (fun t (b, bl, s, v, bon) -> 
-        if contact_un_bonus xraq t (fst v) then
-          let (bn, bln, sn, vn) = appliquer_bonus (b, bl, s, v) xraq t in (bn, bln, sn, vn, bon)
-        else (b, bl, s, v, t::bon)) bon (b, bl, s, v, [])
-
-
-    let rebond (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) =
-      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) inv_controles in
-      let rec rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonus) = 
-        let addBalle (ba, bl, s, v, bon) b =
-          (b::ba, bl, s, v, bon)
-        in
-          match balles with
-          | [] -> ([], blocs, (score, vies), (long_raq, inv_controles), bonus)
-          | (pos, vit)::q -> 
-            if (yb (snd pos)) < 0. then rebondRec (q, blocs, (score,vies),  (long_raq, inv_controles), bonus)
-            else
-              let (pos2, vit2, newBlocs, newScore, (new_long_raq, new_inv_controles), new_bonus ) = rebond_balle (pos, vit, blocs, (score, vies), (long_raq, inv_controles), bonus) in
-                addBalle (rebondRec (q, newBlocs, (newScore,vies), (new_long_raq, new_inv_controles), new_bonus)) (pos2, vit2)
-      in
-        let (b, bl, s, v, bon) = rebondRec (balles, blocs, (score,vies), (long_raq, inv_controles), bonusTombants) in
-        match b with
-        | [] -> if (snd s - 1) != 0  
-                  then (Init.ballesInit, bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
-                  else ([], bl, (fst s, snd s - 1), Init.paramVariables, Init.bonusInit)
-        | _ -> appliquer_bonus_touches (b, bl, s, v, bon) xraq
-
-
-    let contact_raq_bonus xraq bonusTombants long_raq =
-      List.fold_right (fun t q -> (contact_un_bonus xraq t long_raq || q)) bonusTombants false 
-      
-
-    let rec contact (balles, blocs, statut, paramVariables, bonusTombants) = 
-      let (long_raq, inv_contr) = paramVariables in 
-      let xraq = get_xraq long_raq (fst (Graphics.mouse_pos ())) inv_contr in
-      match balles with
-      | [] -> false
-      | ((x,y), (dx,dy))::q -> 
-        (contact_x F.box_x blocs x y dx) || 
-        (contact_y F.box_y blocs x y dy) || 
-        (contact_raq xraq x y dy long_raq) || 
-        (contact (q, blocs, statut, paramVariables, bonusTombants)) ||
-        (contact_raq_bonus xraq bonusTombants long_raq)
     
-    module FF = FreeFall (F)
+    let rebond jeu =
+      let newJeu = List.fold_right (fun t qt ->
+          let (j, balle) = rebond_balle qt t in 
+            if Balle.yb balle <~ 0 then j
+            else Jeu.ajouterBalle j balle ) (Jeu.balles jeu) (Jeu.remplBalles jeu []) 
+      in
+        match Jeu.balles jeu with
+        | [] -> Jeu.perdreVie jeu
+        | _ -> let jeuBonus = Jeu.appliquerBonusTouches jeu in
+          if Jeu.niveauTermine jeuBonus then Jeu.passerNiveau jeuBonus else jeuBonus
+    
+    module MV = Mouvement (F)
 
     let rec run etat0 =
-      unless (FF.run etat0) contact (fun etat -> run (rebond etat))
+      unless (MV.run etat0) (Jeu.contact F.box_x F.box_y) (fun etat -> run (rebond etat))
   end
 
 
@@ -1095,7 +1125,7 @@ module Bounce = Bouncing (Init)
 
 let _  =
 Random.init 7364;
-Draw.draw (Bounce.run (Init.reset Init.statut));;
+Draw.draw (Bounce.run (Jeu.init));;
 
 (* TODO
 
