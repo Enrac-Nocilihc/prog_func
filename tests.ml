@@ -298,14 +298,14 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
     (* Représente la puissance du bloc / Score à la destruction *)
     type tb = int * int
 
-    let fun_evo_lignes_nb = fun niveau hauteur -> (2 + 2 * niveau)
+    let fun_evo_lignes_nb = fun niveau hauteur -> (7 + 2 * niveau)
     let fun_evo_lignes_pw = fun niveau hauteur -> (niveau + ((niveau * hauteur / 3 )) )
     let fun_nb_lignes = fun niveau -> 8
 
     let power_to_couleur power = 
-      if power < 0 then black
+      if power < 0 then white
       else
-        let nbRot = 20. in
+        let nbRot = 15. in
         let p = float_of_int (power mod int_of_float nbRot) in
         let prop = 3. *. p /. nbRot -. float_of_int( int_of_float (3. *. p /. nbRot)) in
         let (r,g,b) = 
@@ -331,7 +331,10 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
       let l = (xmax -- xmin -~ 50) /~. float_of_int nbBlocs
       in
         let rec ajouterBloc x nbBlocs power =
-          let bloc = cons (x,y) l h power in
+          let realPower = (
+            let randf = Random.float 1. in 
+            if randf < 0.1 then -1 else power) in
+          let bloc = cons (x,y) l h realPower in
             if nbBlocs = 0 then []
             else if nbBlocs < 0 then raise (Failure "Oops !")
             else bloc::(ajouterBloc (x +- l +~. e) (nbBlocs - 1) power)
@@ -344,7 +347,7 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
       let ((xmin, xmax), (ymin, ymax)) = zone_blocs in
         let nbLignes = fun_nb_lignes n in
           let e = 50. /. float_of_int nbLignes in
-          let h = (ymax -- ymin -~. e) /~ nbLignes in
+          let h = (ymax -- ymin -~ 50) /~ nbLignes in
             let rec ajouterLigne y nbL =
               if nbL = 0 then []
               else let ligne = genererLigne y xmin xmax (fun_evo_lignes_nb n nbL) (fun_evo_lignes_pw n nbL) h in
@@ -356,9 +359,6 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
     let draw bloc =
         set_color (couleur bloc);              
         fill_rect (intv(xg bloc)) (intv(yb bloc)) (intv(long bloc)) (intv(haut bloc));
-        set_color (power_to_couleur (power bloc + 1 )); 
-        draw_rect (intv(xg bloc)) (intv(yb bloc)) (intv(long bloc)) (intv(haut bloc));
-        set_color black;
   end
 
 
@@ -400,7 +400,7 @@ module Raquette : RaquetteItf with type nb = Nombre.nb =
 
     type tr = bool
     
-    let haut_raq = toInt 15
+    let haut_raq = toInt 20
     let long_raq = toInt 120
     let y_raq = toInt 100
     let color_raq = red
@@ -417,7 +417,7 @@ module Raquette : RaquetteItf with type nb = Nombre.nb =
           else if x < rx raq          then toFloat 0.
           else x -- rx raq
         in
-          if sens raq then new_x else long_ecran -- new_x)
+          if sens raq then new_x else long_ecran -- long raq -- new_x)
     
     let xc s = xg s +- rx s
     let xd s = xg s +- long s
@@ -479,11 +479,11 @@ module Balle : BalleItf with type nb = Nombre.nb =
     (* Représente la vitesse de la balle *)
     type tba = nb * nb
 
-    let posInit = (toInt 120, toInt 100)
-    let diametre = toInt 10
-    let vitesseInit = (toFloat 100., toFloat 100.)
+    let posInit = (toInt 400, toInt 200)
+    let diametre = toInt 12
+    let vitesseInit = (toFloat 200., toFloat 200.)
 
-    let init = cons posInit diametre diametre black vitesseInit
+    let init = cons posInit diametre diametre white vitesseInit
 
     let vit balle = param balle
     let setVit balle vit = setParam balle vit
@@ -553,13 +553,14 @@ module Balle : BalleItf with type nb = Nombre.nb =
     
     let draw balle =(
         set_color (couleur balle);
-        draw_circle (intv (xc balle)) (intv (yc balle)) (intv(rx balle));)
+        fill_circle (intv (xc balle)) (intv (yc balle)) (intv(rx balle));)
 
 
   end
 
 
 (* Bonus *)
+
 module type BonusItf =
   sig
 
@@ -567,10 +568,13 @@ module type BonusItf =
     
 
     type 'a evo = 'a -> 'a
+    
     type bonusType = 
       | BonusRaq of (Raquette.tr, nb) Raquette.t evo
       | BonusBal of (Balle.tba, nb) Balle.t list evo
       | BonusVie of int evo
+      | BonusScore of int evo
+
     type tbo
 
     (* Fonction augmentant la taille de la raquette *)
@@ -629,6 +633,7 @@ module Bonus : BonusItf with type nb = Nombre.nb =
       | BonusRaq of (Raquette.tr, nb) Raquette.t evo
       | BonusBal of (Balle.tba, nb) Balle.t list evo
       | BonusVie of int evo
+      | BonusScore of int evo
     
     (* Type de bonus / Vitesse / Probabilité relative *)
     type tbo = bonusType * (nb * nb) * float
@@ -639,6 +644,7 @@ module Bonus : BonusItf with type nb = Nombre.nb =
     let tailleRaquetteInv = BonusRaq(Raquette.changeSens)
     let vieSupp = BonusVie(fun vies -> vies + 1)
     let multiballes = BonusBal(fun listeBalles -> Balle.dupliquer listeBalles)
+    let gainPoints = BonusScore(fun score -> int_of_float (float_of_int score *. 1.1))
 
     let vitesseInit = (toFloat 0., toFloat (-.100.))
     let rayon = toInt 10
@@ -648,10 +654,11 @@ module Bonus : BonusItf with type nb = Nombre.nb =
     
     let listeBonus = [
       (tailleRaquetteUp, green, 2.);
-      (tailleRaquetteDown, red, 3.);
-      (tailleRaquetteInv, magenta, 5.);
+      (tailleRaquetteDown, rgb 150 0 0, 3.);
+      (tailleRaquetteInv, magenta, 3.);
       (vieSupp, red, 1.);
-      (multiballes, black, 1.);
+      (gainPoints, yellow, 1.);
+      (multiballes, white, 2.);
     ]
 
     let poidsProbas = List.fold_right (fun t qt -> let (_, _, p) = t in p +. qt) listeBonus 0.
@@ -677,10 +684,10 @@ module Bonus : BonusItf with type nb = Nombre.nb =
         else None
     
     let collisionRaquette bonus raq =
-      Raquette.yh raq > yb bonus &&
-      Raquette.yb raq < yh bonus && 
-      Raquette.xg raq < xc bonus && 
-      Raquette.xd raq > xc bonus
+      Raquette.yh raq >> yb bonus && 
+      Raquette.yb raq << yb bonus && 
+      Raquette.xg raq << xc bonus && 
+      Raquette.xd raq >> xc bonus
 
     let collisionsRaquette listeBonus raq =
       List.fold_right (fun t qt -> qt || collisionRaquette t raq) listeBonus false
@@ -690,8 +697,9 @@ module Bonus : BonusItf with type nb = Nombre.nb =
 
     let draw bonus =
       set_color (couleur bonus);
+      set_line_width 2;
       draw_circle (intv(xc bonus)) (intv(yc bonus)) (intv(rx bonus));
-      fill_circle (intv(xc bonus)) (intv(yc bonus)) (intv(rx bonus));
+      set_line_width 1;
 
   end
 
@@ -837,6 +845,7 @@ module Jeu : JeuItf with type nb = Nombre.nb =
           | BonusRaq f -> remplRaquette j (f (raquette jeu))
           | BonusVie f -> setVies j (f (vies jeu))
           | BonusBal f -> remplBalles j (f (balles jeu)) 
+          | BonusScore f -> setScore j (f (score jeu)) 
         in
         List.fold_right (fun t qt -> if Bonus.collisionRaquette t (raquette qt) then appliquer qt t else ajouterBonus qt t) (bonus jeu) (remplBonus jeu []) 
   
@@ -979,6 +988,11 @@ module Drawing (F : Frame) =
             (* Format.printf "r=(%f, %f); dr = (%f, %f)@." x y dx dy;*)
             Graphics.clear_graph ();
 
+            (* Background *)
+            set_color black;
+            moveto 0 0;
+            fill_rect 0 0 (intv long_ecran) (intv haut_ecran);
+
             (* Définition des fonctions graphiques *)
 
             let draw_score score couleur =
@@ -996,11 +1010,16 @@ module Drawing (F : Frame) =
               draw_string (string_of_int vies);
             in
 
+
+            let draw_niveau niveau couleur =
+              
+              moveto 20 50;
+              set_color couleur;
+              draw_string "NIVEAU ";
+              draw_string (string_of_int niveau);
+            in
+
             let draw_game_over score vies =
-              (* Background *)
-              set_color black;
-              moveto 0 0;
-              fill_rect 0 0 (intv long_ecran) (intv haut_ecran);
               (* Texte Game over *)
               moveto (intv (long_ecran /~. 10.)) (intv (haut_ecran /~. 2.));
               set_color white;
@@ -1024,8 +1043,9 @@ module Drawing (F : Frame) =
                   List.iter Balle.draw (balles jeu);
                   List.iter Bonus.draw (bonus jeu);
                   Raquette.draw (raquette jeu);
-                  draw_score (score jeu) black;
-                  draw_vies (vies jeu) red;
+                  draw_score (score jeu) white;
+                  draw_vies (vies jeu) (rgb 255 150 150);
+                  draw_niveau (niveau jeu) white;
                   set_font "-*-fixed-medium-r-semicondensed--15-*-*-*-*-*-iso8859-1";
                   List.iter Bloc.draw (blocs jeu);
                 )
@@ -1116,7 +1136,7 @@ module Bouncing (F : Frame) =
     include Nombre
 
     (* % d'augmentation de la vitesse après un rebond *)
-    let acceleration = toFloat 1.05
+    let acceleration = toFloat 1.005
 
     (* version avec unfold sans récursivité directe *)
     let unless flux cond f_cond =
@@ -1144,7 +1164,6 @@ module Bouncing (F : Frame) =
         let ratio_centre = (dist_centre /- (Raquette.long raq)) in
         let thetaAjoute = (if (collision_raq balle (Jeu.raquette jeu)) then floatv ratio_centre *. (3.1415 /. 4.) else 0.) in
         (pivote (setVit balle (new_dx, new_dy)) thetaAjoute)
-        
       )
     
     let blocsBounce jeu balle =
