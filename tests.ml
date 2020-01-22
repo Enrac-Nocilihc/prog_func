@@ -317,6 +317,8 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
 
     let scoreBase = 20
 
+    let espacement = 5
+
     let calcScore power = (power * scoreBase)
 
     let cons (x,y) long haut power = Solide.cons (x,y) long haut (power_to_couleur power) (power, (calcScore power))
@@ -327,9 +329,10 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
 
     let downgrade bloc = setParam bloc ((power bloc) - 1, score bloc)
 
+
     let genererLigne y xmin xmax nbBlocs power h = 
-      let e = 50. /. float_of_int nbBlocs in
-      let l = (xmax -- xmin -~ 50) /~. float_of_int nbBlocs
+      let e = espacement in
+      let l = ((xmax -- xmin) /~. float_of_int nbBlocs) -~ e
       in
         let rec ajouterBloc x nbBlocs power =
           let realPower = (
@@ -338,7 +341,7 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
           let bloc = cons (x,y) l h realPower in
             if nbBlocs = 0 then []
             else if nbBlocs < 0 then raise (Failure "Oops !")
-            else bloc::(ajouterBloc (x +- l +~. e) (nbBlocs - 1) power)
+            else bloc::(ajouterBloc (x +- l +~ e) (nbBlocs - 1) power)
         in 
         ajouterBloc xmin nbBlocs power 
     
@@ -347,12 +350,12 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
 
       let ((xmin, xmax), (ymin, ymax)) = zone_blocs in
         let nbLignes = fun_nb_lignes n in
-          let e = 50. /. float_of_int nbLignes in
-          let h = (ymax -- ymin -~ 50) /~ nbLignes in
+        let e = espacement in
+          let h = ((ymax -- ymin) /~ nbLignes) -~ e in
             let rec ajouterLigne y nbL =
               if nbL = 0 then []
               else let ligne = genererLigne y xmin xmax (fun_evo_lignes_nb n nbL) (fun_evo_lignes_pw n nbL) h in
-              ligne::(ajouterLigne (y -- h -~. e) (nbL - 1))
+              ligne::(ajouterLigne (y -- h -~ e) (nbL - 1))
             in 
               List.flatten (ajouterLigne ymax nbLignes)
 
@@ -362,7 +365,7 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
         fill_rect (intv(xg bloc)) (intv(yb bloc)) (intv(long bloc)) (intv(haut bloc));
         if power bloc < 0 then (
           set_color black;              
-          fill_rect (intv(xg bloc) + 5) (intv(yb bloc) + 5) (intv(long bloc) - 10) (intv(haut bloc) - 10);
+          fill_rect (intv(xg bloc) + espacement) (intv(yb bloc) + espacement) (intv(long bloc) - espacement * 2) (intv(haut bloc) -  espacement * 2);
         )
   end
 
@@ -448,18 +451,20 @@ module type BalleItf =
 
     (* Retourne true si la balle fournie en argument est en collision avec la raquette fournie en argument *)
     val collision_raq : (tba, nb) t -> (Raquette.tr, nb) Raquette.t -> bool
+    
+    val collision_bloc : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool * bool * bool * bool
+    val collision_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool -> bool
+    val collision_xy_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list  -> bool -> bool * bool
+
+    val collision_effective : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool
 
     (* Retourne true si la balle fournie en argument est en collision 
-    (sur l'axe précisé, si précisé) avec le(s) bloc(s) fourni(s) en argument *)
-    val collision_x_bloc : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool
-    val collision_x_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool
+    (sur l'axe précisé, si précisé) avec le(s) bloc(s) fourni(s) en argument 
+    
     val collision_x_blocs_effective : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool
-    val collision_y_bloc : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool
-    val collision_y_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool
-    val collision_y_blocs_effective : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool
-    val collision_bloc : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool
+    
     val collision_bloc_effective : (tba, nb) t -> (Bloc.tb, nb) Bloc.t -> bool (* Debug d'effet ping pong en 1 frame + Equilibre l'effet traverse de la balle *)
-    val collision_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool
+    val collision_blocs : (tba, nb) t -> (Bloc.tb, nb) Bloc.t list -> bool*)
     
     (* Duplique la première balle de la liste, et change l'orientation de sa vitesse *)
     val dupliquer : (tba, nb) t list -> (tba, nb) t list
@@ -506,6 +511,7 @@ module Balle : BalleItf with type nb = Nombre.nb =
     let setTraverse balle pow = let (v, pw, b) = param balle in setParam balle (v, pow, b)
     let blocsTouches balle = let (v, pw, b) = param balle in b
     let setBlocsTouches balle bl = let (v, pw, b) = param balle in setParam balle (v, pw, bl)
+    
 
     let dx balle = fst (vit balle)
     let dy balle = snd (vit balle)
@@ -517,52 +523,88 @@ module Balle : BalleItf with type nb = Nombre.nb =
         Raquette.xg raq << xc balle && 
         Raquette.xd raq >> xc balle
 
-    let marge_collision_cote = toInt 10
+    let collision_effective balle bloc = 
+      (List.fold_right (fun t qt -> qt && (intv(Bloc.xc bloc) != intv(Bloc.xc t) || intv(Bloc.yc bloc) != intv(Bloc.yc t)) ) (blocsTouches balle) true)
 
-    let collision_xg_bloc balle bloc = let (dx, dy) = vit balle in
-      (xd balle >>= Bloc.xg bloc && xd balle <<= Bloc.xg bloc +- marge_collision_cote && dx >~. 0.)
-    let collision_xd_bloc balle bloc = let (dx, dy) = vit balle in
-      (xg balle <<= Bloc.xd bloc && xg balle >>= Bloc.xd bloc -- marge_collision_cote && dx <~. 0.)
+
+    let collision_bloc balle bloc =
+      let distance (x1,y1) (x2,y2) = 
+        toFloat((floatv(x2 -- x1) ** 2. +. floatv(y2 -- y1) ** 2.) ** 0.5)
+      in
+      let conda = 
+        yc balle << Bloc.yh bloc &&
+        yh balle >> Bloc.yb bloc &&
+        xg balle << Bloc.xd bloc &&
+        xc balle >> Bloc.xg bloc &&
+        not (
+          distance (posC balle) (Bloc.xd bloc, Bloc.yb bloc) >> rx balle && 
+          xc balle >> Bloc.xd bloc &&
+          yc balle << Bloc.yb bloc)
+      in
+      let condb = 
+        yc balle << Bloc.yh bloc &&
+        yh balle >> Bloc.yb bloc &&
+        xc balle << Bloc.xd bloc &&
+        xd balle >> Bloc.xg bloc &&
+        not (
+          distance (posC balle) (Bloc.xg bloc, Bloc.yb bloc) >> rx balle && 
+          xc balle << Bloc.xg bloc &&
+          yc balle << Bloc.yb bloc)
+      in
+      let condc = 
+        yb balle << Bloc.yh bloc &&
+        yc balle >> Bloc.yb bloc &&
+        xg balle << Bloc.xd bloc &&
+        xc balle >> Bloc.xg bloc &&
+        not (
+          distance (posC balle) (Bloc.xd bloc, Bloc.yh bloc) >> rx balle && 
+          xc balle >> Bloc.xd bloc &&
+          yc balle >> Bloc.yh bloc)
+      in
+      let condd = 
+        yb balle << Bloc.yh bloc &&
+        yc balle >> Bloc.yb bloc &&
+        xc balle << Bloc.xd bloc &&
+        xd balle >> Bloc.xg bloc &&
+        not (
+          distance (posC balle) (Bloc.xg bloc, Bloc.yh bloc) >> rx balle && 
+          xc balle << Bloc.xg bloc &&
+          yc balle >> Bloc.yh bloc)
+      in
+      (conda, condb, condc, condd)
+
+    let emplacementsCollisions balle blocs effectivite =
       
-    let collision_yb_bloc balle bloc = let (dx, dy) = vit balle in
-      (yh balle >>= Bloc.yb bloc && yh balle <<= Bloc.yc bloc && dy >~. 0.)
-    let collision_yh_bloc balle bloc = let (dx, dy) = vit balle in
-      (yb balle <<= Bloc.yh bloc && yb balle >>= Bloc.yc bloc && dy <~. 0.)
+      
+      List.fold_right (
+      fun t (a0, b0, c0, d0, l) -> let eff = collision_effective balle t in
+      let (a1, b1, c1, d1) = collision_bloc balle t in 
+        let (a,b,c,d) = 
+        (a0 || (a1 && (eff || not effectivite)),
+        b0 || (b1 && (eff || not effectivite)),
+        c0 || (c1 && (eff || not effectivite)),
+        d0 || (d1 && (eff || not effectivite))) in
+        (a,b,c,d,(if a || b || c || d then t::l else l))) blocs (false, false, false, false, [])
 
-
-    let collision_x_bloc balle bloc = 
-      yb balle << Bloc.yh bloc && yh balle >> Bloc.yb bloc && (
-      collision_xd_bloc balle bloc || collision_xg_bloc balle bloc) 
-
-
-    let collision_y_bloc balle bloc = let (dx, dy) = vit balle in
-      xg balle << Bloc.xd bloc && xd balle >> Bloc.xg bloc && (
-      collision_yb_bloc balle bloc || collision_yh_bloc balle bloc)
-      && not (collision_x_bloc balle bloc)  
-
-    let collision_bloc balle bloc = collision_x_bloc balle bloc || collision_y_bloc balle bloc 
-    
-    let collision_x_bloc_effective balle bloc = 
-      collision_x_bloc balle bloc &&
-      (List.fold_right (fun t qt -> qt && (intv(Bloc.xc bloc) != intv(Bloc.xc t) || intv(Bloc.yc bloc) != intv(Bloc.yc t)) ) (blocsTouches balle) true)
-
-    let collision_y_bloc_effective balle bloc = 
-      collision_y_bloc balle bloc &&
-      (List.fold_right (fun t qt -> qt && (intv(Bloc.xc bloc) != intv(Bloc.xc t) || intv(Bloc.yc bloc) != intv(Bloc.yc t)) ) (blocsTouches balle) true)
-
-    let collision_bloc_effective balle bloc = 
-      collision_x_bloc_effective balle bloc || 
-      collision_y_bloc_effective balle bloc
-
-    let collision_inc_blocs balle blocs = 
-      fun f -> List.fold_right (fun t qt -> qt || (f balle t)) blocs false
-    
-    let collision_x_blocs balle bloc = collision_inc_blocs balle bloc collision_x_bloc
-    let collision_y_blocs balle bloc = collision_inc_blocs balle bloc collision_y_bloc
-    let collision_blocs balle bloc = collision_inc_blocs balle bloc collision_bloc
-    
-    let collision_x_blocs_effective balle bloc = collision_inc_blocs balle bloc collision_x_bloc_effective
-    let collision_y_blocs_effective balle bloc = collision_inc_blocs balle bloc collision_y_bloc_effective
+    let collision_xy_blocs balle blocs effectivite =
+      let (a, b, c, d, _) = emplacementsCollisions balle blocs effectivite in
+      let ex = dx balle >~ 0 in
+      let ey = dy balle >~ 0 in
+      let coll_x = not(
+        (not a && not b && ((not c && not d) || (d && not ex) || (c && ex))) ||
+        (not c && not d && ((b && not ex) || (a && ex))) ||
+        (a && b && c && d)
+      )
+      in
+      let coll_y = not(
+        (not a && not c && ((d && (ey || b)) || (not d && not ey))) ||
+        (not b && not d && (ey || (a && c))) || (a && not b && c && not d) ||
+        (a && b && c && d)
+      ) in
+      (coll_x, coll_y)
+    let collision_blocs balle blocs effectivte =
+      let (a,b,c,d, _) = emplacementsCollisions balle blocs effectivte in
+      a || b || c || d 
 
     let dupliquer listeBalles = 
       let prem = List.hd listeBalles in
@@ -681,6 +723,8 @@ module Bonus : BonusItf with type nb = Nombre.nb =
     let tailleRaquetteInv = BonusRaq(Raquette.changeSens)
     let vieSupp = BonusVie(fun vies -> vies + 1)
     let multiballes = BonusBal(fun listeBalles -> Balle.dupliquer listeBalles)
+    let acceleration = BonusBal(fun listeBalles -> List.map( fun balle -> Balle.(setVit balle (dx balle *~. 1.2, dy balle *~. 1.2) )) listeBalles)
+    let deceleration = BonusBal(fun listeBalles -> List.map( fun balle -> Balle.(setVit balle (dx balle *~. 0.95, dy balle *~. 0.95) )) listeBalles)
     let ballesTraversantes = BonusBal(fun listeBalles -> List.map (fun balle -> Balle.setTraverse balle 10) listeBalles)
     let gainPoints = BonusScore(fun score -> int_of_float (float_of_int score *. 1.1))
 
@@ -697,6 +741,8 @@ module Bonus : BonusItf with type nb = Nombre.nb =
       (vieSupp, red, 1.);
       (gainPoints, yellow, 2.);
       (multiballes, white, 2.);
+      (acceleration, white, 2.);
+      (deceleration, white, 2.);
       (ballesTraversantes, cyan, 1.);
     ]
 
@@ -791,10 +837,11 @@ module type JeuItf =
     val passerNiveau : (g, 'b) t -> (g, 'b) t
 
     (* Vérifie si une balle a eu une collision avec un élément du jeu sur l'axe x/y *)
-    val collision_x : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
-    val collision_y : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
-    val collision_x_effective : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
-    val collision_y_effective : (g, 'b) t -> (Balle.tba, nb) Balle.t -> nb -> nb -> bool
+    val collision_xy : (g, 'b) t -> (Balle.tba, nb) Balle.t -> (nb * nb) -> (nb * nb) -> bool -> bool * bool
+
+    (* Vérifie si la balle est en collision avec autre chose que les blocs *)
+    val collision_autre : (g, 'b) t -> (Balle.tba, nb) Balle.t -> (nb * nb) -> (nb * nb) -> bool * bool
+
     (* Applique les bonus touchés par la raquette *)
     val appliquerBonusTouches : (g, 'b) t -> (g, 'b) t 
 
@@ -860,31 +907,22 @@ module Jeu : JeuItf with type nb = Nombre.nb =
       let niveau = Bloc.genererNiveau (1 + niveau jeu) in
       ajouterBalle (cons [] niveau [] Raquette.init params) Balle.init
 
-    let collision_x jeu balle infx supx = 
-      (Balle.xg balle <<= infx && Balle.dx balle <~. 0.) || 
-      (Balle.xd balle >>= supx && Balle.dx balle >~. 0.) ||
-      (Balle.collision_x_blocs balle (blocs jeu))
-
-    let collision_x_effective jeu balle infx supx = 
-      (Balle.xg balle <<= infx && Balle.dx balle <~. 0.) || 
-      (Balle.xd balle >>= supx && Balle.dx balle >~. 0.) ||
-      (Balle.collision_x_blocs_effective balle (blocs jeu)) 
-
-    let collision_y jeu balle infy supy = 
-      (Balle.yh balle >>= supy && Balle.dy balle >~. 0.) ||
-      (Balle.collision_y_blocs balle (blocs jeu)) ||
-      (Balle.collision_raq balle (raquette jeu) )
+    let collision_autre jeu balle (infx, supx) (infy, supy) =
+      (
+        (Balle.xg balle <<= infx && Balle.dx balle <~. 0.) || 
+        (Balle.xd balle >>= supx && Balle.dx balle >~. 0.) ,
+        (Balle.yh balle >>= supy && Balle.dy balle >~. 0.) ||
+        (Balle.collision_raq balle (raquette jeu))
+      )
+    let collision_xy jeu balle (infx, supx) (infy, supy) effectivite = 
+      let (xbloc, ybloc) = Balle.collision_xy_blocs balle (blocs jeu) effectivite in
+      let (xautre, yautre) = collision_autre jeu balle (infx, supx) (infy, supy) in
+      ( xautre || xbloc, yautre || ybloc )
       
-    let collision_y_effective jeu balle infy supy = 
-      (Balle.yh balle >>= supy && Balle.dy balle >~. 0.) ||
-      (Balle.collision_y_blocs_effective balle (blocs jeu)) ||
-      (Balle.collision_raq balle (raquette jeu) )
-      
-    let collisionQlq jeu balle (xmin, xmax) (ymin, ymax) =
+    let collisionQlq jeu balle (xmin, xmax) (ymin, ymax) effectivite =
+      let (xcol, ycol) = collision_xy jeu balle (xmin, xmax) (ymin, ymax) effectivite in
       vies jeu > 0 && (
-      collision_x_effective jeu balle xmin xmax || 
-      collision_y_effective jeu balle ymin ymax ||
-      (Balle.yh balle <<= ymin && Balle.dy balle <~. 0.) ||
+      xcol || ycol || (Balle.yh balle <<= ymin && Balle.dy balle <~. 0.) ||
       Bonus.collisionsRaquette (bonus jeu) (raquette jeu))
 
     let appliquerBonusTouches jeu =
@@ -901,7 +939,7 @@ module Jeu : JeuItf with type nb = Nombre.nb =
   
 
     let contact limx limy jeu =
-      List.fold_right(fun t qt -> collisionQlq jeu t limx limy || qt) (balles jeu) false
+      List.fold_right(fun t qt -> collisionQlq jeu t limx limy true || qt) (balles jeu) false
 
 
   end
@@ -1209,8 +1247,10 @@ module Bouncing (F : Frame) =
     
     let balleBounce jeu balle blocsT =
       Balle.(
-      let new_dx = (if Jeu.collision_x_effective jeu balle F.xmin F.xmax && (traverse balle <= 0 || not (collision_x_blocs  balle (Jeu.blocs jeu)) )then dx balle *~ (-1) *- acceleration else dx balle) in
-      let new_dy = (if Jeu.collision_y_effective jeu balle F.ymin F.ymax && (traverse balle <= 0 || not (collision_y_blocs  balle (Jeu.blocs jeu)) )then dy balle *~ (-1) *- acceleration else dy balle) in
+        let (xcol, ycol) = Jeu.collision_xy jeu balle F.box_x F.box_y true in
+        let (xautre, yautre) = Jeu.collision_autre jeu balle F.box_x F.box_y in
+      let new_dx = (if xcol && (traverse balle <= 0 || xautre) then dx balle *~ (-1) *- acceleration else dx balle) in
+      let new_dy = (if ycol && (traverse balle <= 0 || yautre) then dy balle *~ (-1) *- acceleration else dy balle) in
         let newTraverse = if floatv (dx balle) != floatv (new_dx) || floatv (dy balle) != floatv (new_dy) then traverse balle - 1 else traverse balle in
         let raq = Jeu.raquette jeu in
         let dist_centre = xc balle -- Raquette.xc raq in
@@ -1222,8 +1262,9 @@ module Bouncing (F : Frame) =
     let blocsBounce jeu balle =
       let blocs = Jeu.blocs jeu in 
         List.fold_right (fun t (morts, vivants, touches) -> 
-          if Balle.collision_bloc balle t then 
-            if Balle.collision_bloc_effective balle t  then
+          let (a,b,c,d) = Balle.collision_bloc balle t in
+          if a || b || c || d then 
+            if Balle.collision_effective balle t then
               (if Bloc.power t = 1 then (t::morts, vivants, t::touches) 
               else (morts, (Bloc.downgrade t)::vivants, t::touches))
             else (morts, t::vivants, t::touches)
