@@ -310,14 +310,17 @@ module Bloc : BlocItf with type nb = Nombre.nb  =
         let p = float_of_int (power mod int_of_float nbRot) in
         let prop = 3. *. p /. nbRot -. float_of_int( int_of_float (3. *. p /. nbRot)) in
         let (r,g,b) = 
-          if p < nbRot /. 3. then (0., cos (prop *. 3.1415 /. 2.), sin (prop *. 3.1415 /. 2.)) 
+          if p = 0. then (0., 1., 0.)
+          else if p = nbRot /. 3. then (0., 0., 1.)
+          else if p = 2. *. nbRot /. 3. then (1., 0., 0.)
+          else if p < nbRot /. 3. then (0., cos (prop *. 3.1415 /. 2.), sin (prop *. 3.1415 /. 2.)) 
           else if  p > 2. *. nbRot /. 3. then (cos (prop *. 3.1415 /. 2.), sin (prop *. 3.1415 /. 2.), 0.) 
           else (sin (prop *. 3.1415 /. 2.), 0., cos (prop *. 3.1415 /. 2.)) in
         rgb (int_of_float (255. *. r)) (int_of_float  (255. *. g)) (int_of_float  (255. *. b))
 
     let scoreBase = 20
 
-    let espacement = 5
+    let espacement = 3
 
     let calcScore power = (power * scoreBase)
 
@@ -590,17 +593,8 @@ module Balle : BalleItf with type nb = Nombre.nb =
       let (a, b, c, d, _) = emplacementsCollisions balle blocs effectivite in
       let ex = dx balle >~ 0 in
       let ey = dy balle >~ 0 in
-      let coll_x = not(
-        (not a && not b && ((not c && not d) || (d && not ex) || (c && ex))) ||
-        (not c && not d && ((b && not ex) || (a && ex))) ||
-        (a && b && c && d)
-      )
-      in
-      let coll_y = not(
-        (not a && not c && ((d && (ey || b)) || (not d && not ey))) ||
-        (not b && not d && (ey || (a && c))) || (a && not b && c && not d) ||
-        (a && b && c && d)
-      ) in
+      let coll_x = (c && not d && not ex) || (not c && d && ex) || (a && not b && not ex) || (not a && b && ex) in
+      let coll_y = (d && not b && not ey) || (not d && b && ey) || (c && not a && not ey) || (not c && a && ey) in
       (coll_x, coll_y)
     let collision_blocs balle blocs effectivte =
       let (a,b,c,d, _) = emplacementsCollisions balle blocs effectivte in
@@ -862,6 +856,7 @@ module Jeu : JeuItf with type nb = Nombre.nb =
 
     let viesInit = 3
     let lvlInit = 1
+    let scoreInit = 0
 
     let cons balles blocs bonus raquette param = (balles, blocs, bonus, raquette, param)
 
@@ -899,7 +894,7 @@ module Jeu : JeuItf with type nb = Nombre.nb =
     let perdreVie jeu = let jeuEvo = setVies jeu (vies jeu - 1) in
       if vies jeu = 0 then remplBalles jeuEvo [] else remplRaquette (remplBonus (ajouterBalle jeuEvo (Balle.init)) []) Raquette.init
 
-    let init = ajouterBalle (cons [] (Bloc.genererNiveau 1) [] Raquette.init (0, viesInit, 1)) Balle.init
+    let init = ajouterBalle (cons [] (Bloc.genererNiveau lvlInit) [] Raquette.init (scoreInit, viesInit, lvlInit)) Balle.init
     
     let niveauTermine jeu = List.fold_right(fun t qt -> (Bloc.power t) < 0 && qt) (blocs jeu) true
     let passerNiveau jeu = 
